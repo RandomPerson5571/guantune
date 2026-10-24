@@ -20,8 +20,10 @@ prints each trial and waits for a fresh controller A press before each run.
 
 autotune::LemLibTuningDrive drive(chassis);
 autotune::AutonTuneConfig config;
+config.range = 0.1; // Acceptable distance error: +/-0.1 inch.
+config.maxTrials = 15;
 config.allowIntegral = false; // Default: keep kI at zero.
-autotune::SelfTuningAuton tuner(drive, config);
+autotune::AutonTuner tuner(drive, config);
 
 auto result = tuner.run([&](unsigned trial, const autotune::Gains& gains) {
     // REQUIRED: reposition or confirm clear room for another 24-inch run.
@@ -35,6 +37,22 @@ if (result.status == autotune::AutonTuneStatus::COMPLETE) {
     // Save/print settings->kP, kI, kD for your chassis configuration.
 }
 ```
+
+`AutonTuner` is an alias for `SelfTuningAuton`. With C++20, construction can also
+use designated parameters:
+
+```cpp
+autotune::AutonTuner tuner(drive, {.range = 0.1, .maxTrials = 15});
+```
+
+`range` is the acceptable distance error in inches, not a PID gain increment.
+For the 24-inch target, `range = 0.1` accepts 23.9 to 24.1 inches, subject to
+the speed, overshoot, and confirmation checks. It overrides the existing
+`toleranceInches` parameter; omitting it preserves the default 0.5-inch tolerance.
+`maxTrials` caps all trials, including confirmation runs. It must be at least
+`confirmationTrials` (two by default). Invalid ranges (zero, negative, nonfinite,
+or at least the target distance) and invalid trial limits return `INVALID_CONFIG`
+before motor output. The drive argument supplies the robot hardware connection.
 
 `run()` blocks and does not launch tasks. Only one run per tuner is permitted.
 Another task can call `tuner.abort()` during motion; motion checks it each loop.
@@ -51,9 +69,9 @@ produce up to 20 consecutive 24-inch runs; use the callback deliberately.
 
 ## Adjustment rules
 
-- A stationary result within 0.5 inch of target, with no excessive overshoot or
+- A stationary result within the configured range of target, with no excessive overshoot or
   oscillation, records the gains. Two consecutive successful trials are required.
-- Overshoot greater than 0.5 inch, or at least three meaningful crossings of the
+- Overshoot greater than the configured range, or at least three meaningful crossings of the
   target, increases kD. Crossings use a +/-0.5-inch deadband to reject noise.
 - An unsuccessful run without excessive overshoot or oscillation increases kP.
   This includes undershoot after the five-second trial timeout.

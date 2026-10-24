@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `range` (acceptable distance error in inches) and the `AutonTuner` alias;
+  document `.range = 0.1, .maxTrials = 15` construction and trial-limit behavior.
 - Implement `SelfTuningAuton` with 24-inch trials starting at P=1.1, I=0,
   D=1.1, coarse-to-fine P/D adjustments, repeated confirmation, and opt-in
   last-resort integral tuning.

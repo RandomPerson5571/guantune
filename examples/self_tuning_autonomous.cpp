@@ -7,8 +7,10 @@
 autotune::AutonTuneResult tuneAutonomous(lemlib::Chassis& chassis) {
     autotune::LemLibTuningDrive drive(chassis);
     autotune::AutonTuneConfig config;
+    config.range = 0.1; // Accept distance error within +/-0.1 inch.
+    config.maxTrials = 15;
     config.allowIntegral = false;
-    autotune::SelfTuningAuton tuner(drive, config);
+    autotune::AutonTuner tuner(drive, config);
     pros::Controller controller(pros::E_CONTROLLER_MASTER);
 
     // Each trial moves 24 inches forward from its own starting pose.

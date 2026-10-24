@@ -21,6 +21,8 @@ public:
 };
 
 struct AutonTuneConfig {
+    // Acceptable distance error in inches. When set, overrides toleranceInches.
+    std::optional<double> range = std::nullopt;
     double distanceInches = 24;
     double maxOutput = 60;
     double toleranceInches = 0.5;
@@ -88,5 +90,7 @@ private:
     std::atomic_flag running_ = ATOMIC_FLAG_INIT;
     AutonTuneStatus trial(const Gains&, TrialReport&);
 };
+
+using AutonTuner = SelfTuningAuton;
 
 } // namespace autotune

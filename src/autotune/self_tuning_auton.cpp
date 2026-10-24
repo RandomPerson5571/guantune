@@ -34,7 +34,9 @@ struct Stop {
 }
 
 SelfTuningAuton::SelfTuningAuton(TuningDrive& drive, AutonTuneConfig config)
-    : drive_(drive), config_(config) {}
+    : drive_(drive), config_(config) {
+    if (config_.range) config_.toleranceInches = *config_.range;
+}
 
 void SelfTuningAuton::abort() { aborted_.store(true); }
 

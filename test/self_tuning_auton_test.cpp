@@ -10,13 +10,14 @@ struct FakeDrive : TuningDrive {
     enum Profile { GOOD, SHORT, OVERSHOOT, OSCILLATE, NOISY, COAST, BAD_SENSOR, TOO_FAR, SIMULATED } profile = GOOD;
     std::uint32_t time = 0, start = 0;
     double left = 0, right = 0, position = 0, velocity = 0;
+    double shortDistance = 22;
     bool enabled = true;
     unsigned writes = 0;
     SelfTuningAuton* cancel = nullptr;
     DrivePose pose() override {
         const double ms = time - start;
         double distance = std::min(24.0, ms * 0.024);
-        if (profile == SHORT) distance = std::min(22.0, ms * 0.024);
+        if (profile == SHORT) distance = std::min(shortDistance, ms * 0.024);
         if (profile == OVERSHOOT) distance = ms < 1100 ? std::min(26.0, ms * 0.026) : std::max(24.0, 26 - (ms - 1100) * 0.01);
         if (profile == OSCILLATE) distance = ms < 1000 ? ms * 0.024 : 24 + 2 * std::sin((ms - 1000) / 100);
         if (profile == NOISY && ms >= 1000) distance = 24 + 0.02 * std::sin((ms - 1000) / 100);
@@ -50,6 +51,39 @@ int main() {
     assert(SelfTuningAuton::gainStep(12) == 0.1);
     assert(SelfTuningAuton::gainStep(2, true) == 0.1);
     AutonTuneConfig c;
+    {
+        FakeDrive d; d.profile = FakeDrive::SHORT; d.shortDistance = 23.75;
+        auto result = AutonTuner(d).run([&](unsigned, const Gains&) { d.reset(); return true; });
+        assert(result.status == AutonTuneStatus::COMPLETE); // Within default 0.5 inch.
+        AutonTuneConfig strict;
+        strict.range = 0.1;
+        strict.maxTrials = 15;
+        unsigned count = 0;
+        auto limited = AutonTuner(d, strict).run([&](unsigned, const Gains&) {
+            ++count; d.reset(); return true;
+        });
+        assert(limited.status == AutonTuneStatus::TRIAL_LIMIT);
+        assert(count == 15 && limited.trials.size() == 15); d.stopped();
+    }
+    for (double range : {0.0, -0.1, 24.0, std::numeric_limits<double>::infinity(),
+                         std::numeric_limits<double>::quiet_NaN()}) {
+        FakeDrive d; AutonTuneConfig invalid; invalid.range = range;
+        auto r = AutonTuner(d, invalid).run([](unsigned, const Gains&) { return true; });
+        assert(r.status == AutonTuneStatus::INVALID_CONFIG && d.writes == 0);
+    }
+    for (unsigned trials : {0u, 1u}) {
+        FakeDrive d; AutonTuneConfig invalid; invalid.maxTrials = trials;
+        auto r = AutonTuner(d, invalid).run([](unsigned, const Gains&) { return true; });
+        assert(r.status == AutonTuneStatus::INVALID_CONFIG && d.writes == 0);
+    }
+#if __cplusplus >= 202002L
+    {
+        FakeDrive d;
+        AutonTuner tuner(d, {.range = 0.1, .maxTrials = 15});
+        auto r = tuner.run([&](unsigned, const Gains&) { d.reset(); return true; });
+        assert(r.status == AutonTuneStatus::COMPLETE); d.stopped();
+    }
+#endif
     {
         FakeDrive d; SelfTuningAuton tuner(d);
         auto r = tuner.run([&](unsigned, const Gains&) { d.reset(); return true; });
