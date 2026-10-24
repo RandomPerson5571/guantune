@@ -1,0 +1,11 @@
+/bin/
+/.d/
+/firmware/
+/common.mk
+/project.pros
+/include/pros/
+/include/lemlib/
+/include/fmt/
+/include/api.h
+/include/liblvgl/
+/*.zip
