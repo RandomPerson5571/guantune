@@ -1,20 +1,19 @@
-# Host-side tests
+# Validation
 
-`self_tuning_auton_test.cpp` exercises the implemented autonomous tuner using a
-scripted drive and a simple simulated plant. See the main README for the command.
-Checks include successful confirmation, P/D step selection, fine refinement,
-oscillation, optional integral gating, faults, aborts, and clock wraparound.
-It requires only C++17, not PROS or LemLib.
+Run `bash scripts/test_host.sh` from the Guantune checkout. Set CXX=g++ or clang++
+and CXXSTD=c++17 or c++20. ASan and UBSan are enabled; warnings are errors.
+CI runs all four compiler/standard combinations.
 
-## Future relay tests
+self_tuning_auton_test.cpp covers scripted decision/return/fault/abort/time-wrap
+cases. quality_test.cpp uses an independent first-order motor model with friction,
+output saturation, brake response and measurement noise. Twelve fixed random seeds
+must converge and confirm 6/24/72-inch targets. A separate run tests 90/180-degree
+turns. Tests also cover exception restoration of const PIDs, failed preflight,
+independent measurement, bounded policies, best-trial fallback and persistence.
+prepare_build_test.py checks actual jsonpickle metadata shape, dependency version
+recording, adapter packaging and existing-destination protection.
 
-The separate relay core is intentionally unimplemented.
-Host tests should include only autotune/relay_tuner.hpp or autotune/types.hpp;
-they must not need PROS or LemLib. Keep robot builds on the PROS toolchain.
-
-When implementing the core, cover hysteresis under sensor noise, elapsed-time
-handling, known simulated oscillations, settling-cycle exclusion, period/amplitude
-variance rejection, timeout and invalid-input status, and each rule's gain units.
-Validate failure results contain no gains. Hardware checks must separately verify
-motor clamps, abort response, sensor failures, task lifetime, and stopping on every
-exit path. Do not treat simulated tuning as robot validation.
+These tests cannot establish hardware safety or universal heuristic convergence.
+The adapter must also compile against actual dependency headers with the PROS
+compiler. See docs/compatibility.md and docs/hardware-validation.md. Never replace
+PROS/LemLib implementations with test stubs to claim adapter compatibility.

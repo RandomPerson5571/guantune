@@ -1,0 +1,89 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+permissions:
+  contents: read
+jobs:
+  host-tests:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        std: [c++17, c++20]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run host tests
+        env:
+          CXX: ${{ matrix.compiler }}
+          CXXSTD: ${{ matrix.std }}
+        run: bash scripts/test_host.sh
+  pros-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pinned
+            kernel: '4.2.1'
+            lemlib: '0.5.6'
+            toolchain: '13.3.rel1'
+          - name: latest
+            kernel: latest
+            lemlib: ''
+            toolchain: '15.2.rel1'
+    name: pros-build (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make xz-utils
+          version="${{ matrix.toolchain }}"
+          archive="arm-gnu-toolchain-${version}-x86_64-arm-none-eabi.tar.xz"
+          curl -fL --retry 3 "https://developer.arm.com/-/media/Files/downloads/gnu/${version}/binrel/${archive}" -o "$RUNNER_TEMP/$archive"
+          tar -xf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/arm-gnu-toolchain-${version}-x86_64-arm-none-eabi/bin" >> "$GITHUB_PATH"
+      - name: Install PROS CLI
+        run: pip install pros-cli==3.5.6 "setuptools<81"
+      - name: Prepare build project
+        env:
+          KERNEL_VERSION: ${{ matrix.kernel }}
+          LEMLIB_VERSION: ${{ matrix.lemlib }}
+        run: |
+          args=(--kernel-version "$KERNEL_VERSION")
+          if [ -n "$LEMLIB_VERSION" ]; then args+=(--lemlib-version "$LEMLIB_VERSION"); fi
+          python3 scripts/prepare_build.py "${args[@]}" "$RUNNER_TEMP/guantune-build"
+      - name: Build library and template
+        working-directory: ${{ runner.temp }}/guantune-build
+        run: |
+          if [ "${{ matrix.name }}" = latest ]; then export EXTRA_CXXFLAGS="-DGUANTUNE_ALLOW_UNTESTED_LEMLIB"; fi
+          pros make library
+          pros make template
+      - name: Install template and link consumer
+        run: python3 scripts/test_template.py "$RUNNER_TEMP/guantune-consumer" "$RUNNER_TEMP/guantune-build/autotune@0.1.0.zip"
+      - name: Record compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/guantune-build/project.pros
+            ${{ runner.temp }}/guantune-build/dependency-versions.json
+          if-no-files-found: warn
+      - name: Upload template archive
+        if: matrix.name == 'pinned'
+        uses: actions/upload-artifact@v4
+        with:
+          name: autotune-template
+          path: ${{ runner.temp }}/guantune-build/*.zip
+          if-no-files-found: error

@@ -7,42 +7,83 @@
 using namespace autotune;
 
 struct FakeDrive : TuningDrive {
-    enum Profile { GOOD, SHORT, OVERSHOOT, OSCILLATE, NOISY, COAST, BAD_SENSOR, TOO_FAR, SIMULATED } profile = GOOD;
-    std::uint32_t time = 0, start = 0;
-    double left = 0, right = 0, position = 0, velocity = 0;
-    double shortDistance = 22;
-    bool enabled = true;
+    enum Profile { GOOD, SHORT, OVERSHOOT, OSCILLATE, NOISY, COAST, BAD_SENSOR, TOO_FAR } profile = GOOD;
+    struct Motion { DrivePose from, target; bool forwards; Gains gains; };
+    std::vector<Motion> motions;
+    std::uint32_t time = 0, start = 0, stoppedAt = 0;
+    DrivePose current{10, 20, 0}, from = current, target = current, home = current;
+    bool homeSaved = false;
+    double shortDistance = 22, returnOffset = 0;
+    bool enabled = true, active = false, forwards = true, coasting = false, trialGains = false;
+    bool abortOnReturn = false, disableOnReturn = false;
     unsigned writes = 0;
+    Gains gains{10, 0, 5};
     SelfTuningAuton* cancel = nullptr;
     DrivePose pose() override {
-        const double ms = time - start;
-        double distance = std::min(24.0, ms * 0.024);
-        if (profile == SHORT) distance = std::min(shortDistance, ms * 0.024);
-        if (profile == OVERSHOOT) distance = ms < 1100 ? std::min(26.0, ms * 0.026) : std::max(24.0, 26 - (ms - 1100) * 0.01);
-        if (profile == OSCILLATE) distance = ms < 1000 ? ms * 0.024 : 24 + 2 * std::sin((ms - 1000) / 100);
-        if (profile == NOISY && ms >= 1000) distance = 24 + 0.02 * std::sin((ms - 1000) / 100);
-        if (profile == COAST && ms > 1500) distance = 24 + std::min(2.0, (ms - 1500) * 0.01);
-        if (profile == BAD_SENSOR) distance = std::numeric_limits<double>::quiet_NaN();
-        if (profile == TOO_FAR) distance = ms * 0.05;
-        if (profile == SIMULATED) distance = position;
-        return {10, 20 + distance, 0}; // Nonzero origin checks relative distance.
+        const double ms = static_cast<std::uint32_t>(time - start);
+        if (active) {
+            if (forwards) {
+                double distance = std::min(24.0, ms * 0.024);
+                if (profile == SHORT) distance = std::min(shortDistance, ms * 0.024);
+                if (profile == OVERSHOOT) distance = ms < 1100 ? std::min(26.0, ms * 0.026) : std::max(24.0, 26 - (ms - 1100) * 0.01);
+                if (profile == OSCILLATE) distance = ms < 1000 ? ms * 0.024 : 24 + 2 * std::sin((ms - 1000) / 100);
+                if (profile == NOISY && ms >= 1000) distance = 24 + 0.02 * std::sin((ms - 1000) / 100);
+                if (profile == BAD_SENSOR) distance = std::numeric_limits<double>::quiet_NaN();
+                if (profile == TOO_FAR) distance = ms * 0.05;
+                const double radians = home.headingDegrees * 3.14159265358979323846 / 180;
+                const double initial = (from.x - home.x) * std::sin(radians) + (from.y - home.y) * std::cos(radians);
+                if (ms == 0) distance = initial;
+                current = {home.x + distance * std::sin(radians), home.y + distance * std::cos(radians), home.headingDegrees};
+            } else {
+                const double fraction = std::min(1.0, ms / 1000);
+                current = {from.x + (target.x - from.x) * fraction,
+                           from.y + (target.y + returnOffset - from.y) * fraction, target.headingDegrees};
+            }
+        } else if (coasting) {
+            current.y = 44 + std::min(2.0, static_cast<std::uint32_t>(time - stoppedAt) * 0.01);
+        }
+        return current;
     }
-    void tank(double l, double r) override {
-        assert(std::abs(l) <= 60.000001 && std::abs(r) <= 60.000001);
-        left = l; right = r; ++writes;
+    void setTrialGains(const Gains& g, double) override {
+        assert(!active); trialGains = true; gains = g; ++writes;
+    }
+    void restoreGains() override { assert(!active); trialGains = false; gains = {10, 0, 5}; }
+    void moveTo(const DrivePose& t, bool forward, std::uint32_t, double maxSpeed) override {
+        assert(!active && maxSpeed == 60);
+        assert(forward); // Return must never call moveToPoint.
+        from = pose();
+        if (!homeSaved) { home = from; homeSaved = true; }
+        target = t; forwards = forward; start = time;
+        coasting = false; active = true;
+        assert(forward == trialGains); // Return uses the original controller.
+        motions.push_back({from, target, forward, gains}); ++writes;
+    }
+    void driveBackward(double power) override {
+        assert(!active && !trialGains && power >= 1 && power <= 40);
+        from = pose(); target = home; forwards = false; start = time;
+        coasting = false; active = true;
+        motions.push_back({from, target, false, gains}); ++writes;
+    }
+    bool isMoving() override {
+        const unsigned duration = !forwards ? 1000 : profile == OVERSHOOT ? 1400 :
+            profile == OSCILLATE || profile == NOISY || profile == TOO_FAR ? 5000 : 1000;
+        return active && static_cast<std::uint32_t>(time - start) < duration;
+    }
+    void stop() override {
+        if (!active) return;
+        pose(); active = false;
+        coasting = forwards && profile == COAST; stoppedAt = time;
     }
     std::uint32_t nowMs() override { return time; }
     void delayMs(std::uint32_t ms) override {
-        if (profile == SIMULATED) {
-            velocity += ((left + right) * 0.5 - velocity * 2) * ms / 1000;
-            position += velocity * ms / 1000;
-        }
         time += ms;
-        if (cancel && time - start >= 100) cancel->abort();
+        if (cancel && (!abortOnReturn || !forwards) && static_cast<std::uint32_t>(time - start) >= 100)
+            cancel->abort();
+        if (disableOnReturn && !forwards) enabled = false;
     }
     bool available() override { return enabled; }
-    void reset() { start = time; position = velocity = 0; }
-    void stopped() { assert(left == 0 && right == 0); }
+    void reset() {} // Callback no longer repositions: the runner returns automatically.
+    void stopped() { assert(!active && !trialGains); }
 };
 
 int main() {
@@ -74,6 +115,11 @@ int main() {
     for (unsigned trials : {0u, 1u}) {
         FakeDrive d; AutonTuneConfig invalid; invalid.maxTrials = trials;
         auto r = AutonTuner(d, invalid).run([](unsigned, const Gains&) { return true; });
+        assert(r.status == AutonTuneStatus::INVALID_CONFIG && d.writes == 0);
+    }
+    {
+        FakeDrive d; AutonTuneConfig invalid; invalid.maxOutput = 40;
+        auto r = AutonTuner(d, invalid).run();
         assert(r.status == AutonTuneStatus::INVALID_CONFIG && d.writes == 0);
     }
 #if __cplusplus >= 202002L
@@ -166,11 +212,61 @@ int main() {
         assert(r.status == AutonTuneStatus::COMPLETE); d.stopped();
     }
     {
-        FakeDrive d; d.profile = FakeDrive::SIMULATED;
-        auto r = SelfTuningAuton(d).run([&](unsigned, const Gains&) { d.reset(); return true; });
-        assert(!r.trials.empty());
-        assert(std::abs(r.trials[0].distanceInches) > 1);
+        FakeDrive d; d.profile = FakeDrive::SHORT; d.shortDistance = 20;
+        c = {}; c.maxTrials = c.confirmationTrials = 2;
+        auto r = SelfTuningAuton(d, c).run();
+        assert(r.status == AutonTuneStatus::TRIAL_LIMIT && d.motions.size() == 4);
+        for (unsigned i = 0; i < d.motions.size(); i += 2) {
+            assert(d.motions[i].forwards && !d.motions[i + 1].forwards);
+            assert(std::abs(d.motions[i].from.y - 20) <= 0.5 && d.motions[i].target.y == 44);
+            assert(d.motions[i + 1].from.y == 40 && d.motions[i + 1].target.y == 20);
+        }
+        for (const auto& trial : r.trials) assert(trial.distanceInches == 20 && trial.returnedToStart);
+        assert(std::abs(d.pose().y - 20) <= 0.5); d.stopped();
+    }
+    {
+        FakeDrive d; d.returnOffset = 3;
+        auto r = SelfTuningAuton(d).run();
+        assert(r.status == AutonTuneStatus::RETURN_FAILED && r.trials.size() == 1);
+        assert(!r.trials[0].returnedToStart && d.motions.size() == 2); d.stopped();
+    }
+    {
+        FakeDrive d; d.returnOffset = -2;
+        c = {}; c.returnToleranceInches = 0.01;
+        auto r = SelfTuningAuton(d, c).run();
+        assert(r.status == AutonTuneStatus::RETURN_FAILED && r.trials.size() == 1);
+        assert(d.pose().y < 20); // Missed the narrow range: stop after crossing it.
         d.stopped();
+    }
+    for (double power : {0.0, -20.0, 41.0, std::numeric_limits<double>::quiet_NaN()}) {
+        FakeDrive d; c = {}; c.returnPower = power;
+        assert(SelfTuningAuton(d, c).run().status == AutonTuneStatus::INVALID_CONFIG);
+        assert(d.writes == 0);
+    }
+    for (bool disabled : {false, true}) {
+        FakeDrive d; SelfTuningAuton tuner(d); d.cancel = disabled ? nullptr : &tuner;
+        d.abortOnReturn = true; d.disableOnReturn = disabled;
+        auto r = tuner.run();
+        assert(r.status == (disabled ? AutonTuneStatus::DRIVE_UNAVAILABLE : AutonTuneStatus::ABORTED));
+        assert(d.motions.size() == 2 && !r.trials[0].returnedToStart); d.stopped();
+    }
+    {
+        FakeDrive d; d.current = {5, 8, 90};
+        auto r = SelfTuningAuton(d).run();
+        assert(r.status == AutonTuneStatus::COMPLETE);
+        assert(std::abs(d.motions[0].target.x - 29) < 1e-9);
+        assert(std::abs(d.motions[1].target.x - 5) < 1e-9); d.stopped();
+    }
+    {
+        FakeDrive d; AutonTuneConfig config; config.maxTrials = 3;
+        config.bisectOnReversal = true;
+        auto r = SelfTuningAuton(d, config).run([&](unsigned index, const Gains&) {
+            d.profile = index == 1 ? FakeDrive::OVERSHOOT : FakeDrive::SHORT;
+            return true;
+        });
+        assert(r.status == AutonTuneStatus::TRIAL_LIMIT && r.trials.size() == 3);
+        assert(std::abs(r.trials[2].gains.kP - 2.6) < 1e-9);
+        assert(r.trials[2].gains.kD == 1.1); d.stopped();
     }
     std::cout << "Self-tuning autonomous tests passed\n";
 }

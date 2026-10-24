@@ -1,20 +1,17 @@
-// API usage sketch for an existing PROS + LemLib robot project.
-// Not linkable until the library methods are implemented.
+// Angular tuning in an existing calibrated PROS/LemLib robot project.
 #include "autotune/api.hpp"
+#include <cstdio>
 
-// Supply your existing calibrated chassis; no robot wiring is assumed here.
-void tuneAngular(lemlib::Chassis& chassis) {
-    autotune::Config config;
-    config.mode = autotune::Mode::ANGULAR;
-    config.testMagnitude = 90;
-    config.maxOutput = 60;
-    config.maxTravel = 180;
-
-    autotune::Tuner tuner(chassis, config);
-    const auto result = tuner.run();
-    result.print();
-
-    // Once implemented: inspect a COMPLETE result, convert using toLemLib(result,
-    // yourExistingSettings), and use the returned settings when creating a chassis.
-    // Do not assume LemLib exposes mutable angularSettings on an existing chassis.
+void tuneAngularExample(lemlib::Chassis& chassis) {
+    guantune::AutonTuneConfig config;
+    config.distanceInches = 90; // Angular mode uses degrees for distance fields.
+    config.testDistances = {90, 180};
+    config.maxTravelInches = 210;
+    config.maxSensorSpeed = 400;
+    config.trialTimeoutMs = 15000;
+    config.returnTimeoutMs = 20000;
+    config.maxTrials = 60;
+    auto result = guantune::tuneAngular(chassis, config);
+    if (result.status == guantune::AutonTuneStatus::COMPLETE)
+        std::printf("%s", guantune::controllerSettingsSnippet(result).c_str());
 }

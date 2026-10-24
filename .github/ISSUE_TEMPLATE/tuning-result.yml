@@ -1,0 +1,24 @@
+name: Tuning result report
+description: Record reproducible hardware results, including failed sessions.
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Robot and environment
+      description: Drivetrain, gear ratio, wheel type/diameter, odometry, surface, payload, brake mode, battery charge and voltage.
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and configuration
+      description: Guantune commit, PROS kernel, LemLib, full config, calibration and independent measurement method.
+    validations:
+      required: true
+  - type: textarea
+    id: sessions
+    attributes:
+      label: Session evidence
+      description: Dates, starting/lowest voltage per trial, targets, gains, errors, overshoot, crossings, status and return error. Include several sessions and failed trials.
+    validations:
+      required: true

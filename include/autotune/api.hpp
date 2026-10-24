@@ -5,3 +5,5 @@
 #include "autotune/lemlib_adapter.hpp"
 #include "autotune/self_tuning_auton.hpp"
 #include "autotune/lemlib_tuning_drive.hpp"
+
+#include "autotune/output.hpp"

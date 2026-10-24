@@ -9,3 +9,5 @@
 /include/api.h
 /include/liblvgl/
 /*.zip
+
+__pycache__/

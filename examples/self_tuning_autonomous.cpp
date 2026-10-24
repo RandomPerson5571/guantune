@@ -9,35 +9,25 @@ autotune::AutonTuneResult tuneAutonomous(lemlib::Chassis& chassis) {
     autotune::AutonTuneConfig config;
     config.range = 0.1; // Accept distance error within +/-0.1 inch.
     config.maxTrials = 15;
+    config.returnPower = 20; // Slowly back up while checking chassis pose.
+    config.returnToleranceInches = 0.5;
     config.allowIntegral = false;
     autotune::AutonTuner tuner(drive, config);
-    pros::Controller controller(pros::E_CONTROLLER_MASTER);
-
-    // Each trial moves 24 inches forward from its own starting pose.
-    // Motors are stopped here. Reposition the robot, release A, then press A
-    // to authorize EACH trial. B aborts this waiting phase.
-    // For hands-free operation, replace this callback with your own bounded
-    // repositioning routine that completes before returning true.
-    auto result = tuner.run([&](unsigned trial, const autotune::Gains& gains) {
-        std::printf("Trial %u: P=%.3f I=%.4f D=%.3f. Reposition; A=run, B=abort\n",
+    // Forward trials use LemLib moveToPoint. Return uses a low-power LemLib
+    // tank command until chassis pose is near the saved start, then settles.
+    auto result = tuner.run([](unsigned trial, const autotune::Gains& gains) {
+        std::printf("Trial %u: P=%.3f I=%.4f D=%.3f\n",
                     trial + 1, gains.kP, gains.kI, gains.kD);
-        bool released = false;
-        while (!pros::competition::is_disabled()) {
-            if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_B)) return false;
-            const bool pressed = controller.get_digital(pros::E_CONTROLLER_DIGITAL_A);
-            if (!pressed) released = true;
-            if (released && pressed) return true;
-            pros::delay(10);
-        }
-        return false;
+        return true;
     });
     for (const auto& trial : result.trials) {
-        std::printf("P=%.3f I=%.4f D=%.3f distance=%.2f error=%.2f overshoot=%.2f crossings=%u settled=%d timeout=%d\n",
+        std::printf("P=%.3f I=%.4f D=%.3f distance=%.2f error=%.2f overshoot=%.2f crossings=%u settled=%d timeout=%d returned=%d battery_start=%.0f battery_min=%.0f\n",
                     trial.gains.kP, trial.gains.kI, trial.gains.kD, trial.distanceInches,
                     trial.finalErrorInches, trial.overshootInches, trial.crossings,
-                    trial.settled, trial.timedOut);
+                    trial.settled, trial.timedOut, trial.returnedToStart,
+                    trial.batteryStartMillivolts, trial.batteryMinimumMillivolts);
     }
-    std::printf("Status=%d, last tested P=%.3f I=%.4f D=%.3f\n",
+    std::printf("Status=%d, candidate P=%.3f I=%.4f D=%.3f\n",
                 static_cast<int>(result.status), result.gains.kP, result.gains.kI, result.gains.kD);
     return result; // Apply only COMPLETE results to your chassis configuration.
 }

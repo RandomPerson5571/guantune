@@ -62,8 +62,8 @@ struct Result {
     std::optional<double> TuSeconds;
     unsigned cycles = 0;
 
-    // Declaration only: terminal output belongs to the output layer.
-    void print() const;
+    // Relay output is unavailable; use controllerSettingsSnippet for autonomous results.
+    void print() const = delete; // Relay output is not implemented.
 };
 
 // Planned streaming log record; an SD/terminal sink can consume these later.
@@ -74,3 +74,5 @@ struct LogRecord {
 };
 
 } // namespace autotune
+
+namespace guantune = autotune;
