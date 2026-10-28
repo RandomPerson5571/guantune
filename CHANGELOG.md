@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add opt-in bounded telemetry for trials/coast/return/settle, per-motor PROS
+  voltage/current/temperature reads, optional command instrumentation, and CSV
+  export of successful or failed sessions. Keep telemetry off by default.
+- Check independent displacement throughout returns, including before reverse
+  power, and detect translational sensor jumps during angular returns.
+- Preserve the tested integral windup range in results, settings conversion,
+  snippets, and schema 2 saved JSON; external schema 1 readers need updating.
+- Validate effective target lists without constraining unused distanceInches,
+  and reject PID parameters that cannot be represented by LemLib floats.
+- Add return-fault, target-override, numeric-boundary and export regressions.
+
 - Add GCC/Clang C++17/C++20 sanitizer CI and pinned/latest real PROS builds.
 - Add multi-target confirmation, angular trials, best-trial fallback, optional
   bracket refinement and a bounded custom gain policy.

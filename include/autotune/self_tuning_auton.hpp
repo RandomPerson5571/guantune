@@ -1,6 +1,7 @@
 #pragma once
 
 #include "autotune/types.hpp"
+#include "autotune/telemetry.hpp"
 #include <atomic>
 #include <functional>
 #include <vector>
@@ -24,6 +25,7 @@ public:
     virtual std::uint32_t nowMs() = 0;
     virtual void delayMs(std::uint32_t ms) = 0;
     virtual double batteryMillivolts() { return 12000; } // Override on hardware.
+    virtual std::vector<MotorTelemetry> motorTelemetry(const std::vector<std::int8_t>&) { return {}; }
     virtual bool calibrated() { return true; } // Hardware adapter uses caller's readiness check.
     virtual bool supportsAngular() const { return false; }
     virtual void selectMode(Mode) {}
@@ -71,6 +73,16 @@ struct AutonTuneConfig {
     bool bisectOnReversal = false;
     // Called after a failed trial; return the next candidate. Bounds still enforced.
     std::function<Gains(const Gains&, double, double, unsigned)> adjustmentPolicy = {};
+    // Independent x/y jump limit for angular tests; always inches/second.
+    // Lateral tests continue to use maxSensorSpeed for translation.
+    double maxTranslationalSensorSpeed = 120;
+    bool enableTelemetry = false;
+    std::uint32_t telemetryPeriodMs = 20; // At least the 10 ms control sample interval.
+    std::size_t maxTelemetrySamples = 4096; // Stop recording when full; tuning continues.
+    std::vector<std::int8_t> telemetryMotorPorts = {}; // Explicit drivetrain ports, including reversal.
+    // LemLib does not expose its live commands. Supply a prompt, thread-safe probe
+    // of instrumentation in your controller to capture trial output/voltage.
+    std::function<TelemetryCommand()> telemetryCommandProbe = {};
 };
 
 enum class AutonTuneStatus {
@@ -102,6 +114,9 @@ struct AutonTuneResult {
     std::optional<unsigned> bestTrial;
     Mode mode = Mode::LATERAL;
     std::vector<TrialReport> trials;
+    double integralWindupRange = 3; // Preserve the PID behavior tested by this session.
+    std::vector<TelemetryRecord> telemetry;
+    bool telemetryTruncated = false;
 };
 
 class SelfTuningAuton {
@@ -121,8 +136,14 @@ private:
     AutonTuneConfig config_;
     std::atomic<bool> aborted_{false};
     std::atomic_flag running_ = ATOMIC_FLAG_INIT;
-    AutonTuneStatus trial(const Gains&, const DrivePose& start, TrialReport&);
-    AutonTuneStatus returnToStart(const DrivePose& start, double displacement);
+    struct TelemetrySession;
+    AutonTuneStatus trial(const Gains&, const DrivePose& start, TrialReport&, TelemetrySession&);
+    AutonTuneStatus returnToStart(const DrivePose& start, double displacement, TelemetrySession&);
+    void recordTelemetry(TelemetrySession&, TelemetryPhase, std::uint32_t now,
+                         double target, double actual, std::optional<double> velocity,
+                         double battery, TelemetryCommand knownCommand = {});
+    AutonTuneStatus checkIndependentDisplacement(double displacement,
+                                                 std::optional<double>* reading = nullptr);
 };
 
 using AutonTuner = SelfTuningAuton;

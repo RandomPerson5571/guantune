@@ -69,6 +69,14 @@ jobs:
           if [ "${{ matrix.name }}" = latest ]; then export EXTRA_CXXFLAGS="-DGUANTUNE_ALLOW_UNTESTED_LEMLIB"; fi
           pros make library
           pros make template
+      - name: Test settings conversion against installed dependency headers
+        run: |
+          flags=()
+          if [ "${{ matrix.name }}" = latest ]; then flags+=(-DGUANTUNE_ALLOW_UNTESTED_LEMLIB); fi
+          c++ -std=c++20 -fsanitize=address,undefined -fno-sanitize-recover=all \
+            -Iinclude -isystem "$RUNNER_TEMP/guantune-build/include" "${flags[@]}" \
+            test/lemlib_settings_check.cpp -o "$RUNNER_TEMP/lemlib-settings-check"
+          "$RUNNER_TEMP/lemlib-settings-check"
       - name: Install template and link consumer
         run: python3 scripts/test_template.py "$RUNNER_TEMP/guantune-consumer" "$RUNNER_TEMP/guantune-build/autotune@0.1.0.zip"
       - name: Record compatibility evidence

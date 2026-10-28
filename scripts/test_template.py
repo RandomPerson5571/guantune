@@ -49,10 +49,14 @@ void competition_initialize() {}
 void opcontrol() {}
 void autonomous() {
     if (!validationChassis) return;
-    auto result = guantune::tuneLateral(*validationChassis);
+    guantune::AutonTuneConfig config;
+    config.enableTelemetry = true;
+    config.telemetryMotorPorts = {1, -2};
+    auto result = guantune::tuneLateral(*validationChassis, config);
     (void)guantune::saveAcceptedGains(result, "/usd/guantune.json");
     auto snippet = guantune::controllerSettingsSnippet(result);
     (void)snippet;
+    (void)guantune::saveTelemetryCsv(result, "/usd/guantune-telemetry.csv");
 }
 ''')
     run('make', 'all', 'USE_PACKAGE=0',

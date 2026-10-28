@@ -83,9 +83,11 @@ peak overshoot, crossings, elapsed time, settlement, timeout, and
 `returnedToStart`. Return movement does not overwrite the forward measurements.
 
 `toLemLib(result, baseSettings)` returns optional `lemlib::ControllerSettings`.
-It returns no settings for an unsuccessful run and replaces only the gains on
-success. Use the returned settings when constructing your chassis; keep windup
-and integral-reset behavior consistent when using nonzero I. Tuning temporarily
+It returns no settings for an unsuccessful run and replaces the gains and windup
+range on success. `result.integralWindupRange` records the range used in the
+confirmed trials, so nonzero I retains the same integration cutoff when applied.
+Exit thresholds and slew remain those of baseSettings. Use the returned settings
+when constructing your chassis. Tuning temporarily
 changes the chassis's lateral PID and restores it afterward; it does not
 permanently apply the result.
 
@@ -139,6 +141,11 @@ Turns are clockwise; the return uses fixed counterclockwise tank power. Angular
 progress is unwrapped across 0/360, including the return from 180 degrees.
 In angular mode, maxCrossTrackInches bounds total translational drift in inches. Do not reuse a
 lateral independent-distance callback for angular trials.
+`maxSensorSpeed` is the angular jump limit in degrees/second;
+`maxTranslationalSensorSpeed` separately bounds x/y jumps in inches/second
+(default 120), during both trials and returns. Lateral tests use `maxSensorSpeed`
+for translation as before. Explicit `testDistances` replace `distanceInches`;
+only the targets actually used are validated against travel and tolerance limits.
 
 ## Search policy
 
@@ -154,6 +161,9 @@ bracket refinement, not a guarantee of monotonic behavior or convergence.
 adjustmentPolicy overrides the next candidate after a failed trial and receives
 tested gains, final error, overshoot and trial index. All returned gains must be
 finite and within configured caps; otherwise GAIN_LIMIT stops the run.
+Gain caps, policy candidates, and the windup range must also fit LemLib's float
+parameters. Oversized caps produce INVALID_CONFIG before movement; out-of-range
+policy candidates produce GAIN_LIMIT before they can be installed.
 
 ## Readiness, clearance, battery and independent measurement
 
@@ -175,7 +185,10 @@ handling. False returns ABORTED. It cannot detect obstacles or certify clearance
 independentDisplacement returns signed displacement from the saved session origin,
 in inches (or degrees for angular). For a forward-facing wall sensor use
 (startingRangeMm - currentRangeMm) / 25.4 after validating the sensor's range and
-geometry. Sample every 10ms; callbacks must be prompt. NaN produces SENSOR_FAULT;
+geometry. The callback runs during forward movement, coast observation, and the
+entire return, including a check before reverse power starts. It must keep
+reporting signed displacement from the same session origin as the robot reverses;
+do not reset its baseline between trials. Sample every 10ms; callbacks must be prompt. NaN produces SENSOR_FAULT;
 disagreement above maxMeasurementDisagreement produces MEASUREMENT_DISAGREEMENT.
 The robot stops without reversing on these faults. Trials retain the last
 independent reading. Odometry still determines the normal return; independent
@@ -184,12 +197,83 @@ measurement is a fault check, not sensor fusion.
 ## Saving results
 
 Include autotune/output.hpp. `saveAcceptedGains(result, "/usd/guantune.json")`
-writes mode and accepted gains to the SD card via a temporary file and rename.
+writes schema 2 JSON containing mode, accepted gains, and `windupRange` to the SD
+card via a temporary file and rename. External readers of schema 1 must be updated
+to accept schema 2 and apply its windup range; schema 1 did not record that value.
 Check its boolean result: an absent card, full filesystem or failed rename returns
 false. A failed run does not overwrite accepted gains. Use one writer per path;
 power-loss durability depends on the filesystem. `controllerSettingsSnippet(result)`
 returns a copy-pasteable ControllerSettings copy and gain assignments preserving
-your baseSettings exit thresholds, windup and slew. It is empty on failed results.
+your baseSettings exit thresholds and slew, while applying the tested gains and
+windup range. It is empty on failed results or unrepresentable PID parameters.
+
+## Optional telemetry
+
+Telemetry is disabled by default. Enable it explicitly and provide the signed
+PROS drivetrain motor ports (negative for reversed motors):
+
+```cpp
+guantune::AutonTuneConfig config;
+config.enableTelemetry = true;
+config.telemetryMotorPorts = {-1, -2, 3, 4}; // Replace with your chassis ports.
+config.telemetryPeriodMs = 20;
+config.maxTelemetrySamples = 4096;
+auto result = guantune::tuneLateral(chassis, config);
+bool saved = guantune::saveTelemetryCsv(result, "/usd/guantune-telemetry.csv");
+```
+
+`result.telemetry` contains timestamps, session elapsed time, zero-based trial
+index, mode, phase, target/actual position, signed velocity, battery voltage,
+commanded left/right voltage, controller output, and per-motor measured voltage,
+current, and temperature. Positions are displacement from the fixed session
+origin in inches (lateral) or unwrapped degrees (angular). Returns target zero.
+Velocity is the signed finite difference of control samples, in inches/second or
+degrees/second; it is absent when no time elapsed. Timestamps use the raw drive
+clock; elapsed time handles its 32-bit wrap. Sampling starts with the first trial.
+
+The LemLib adapter reads motor voltage with `pros::c::motor_get_voltage`, current
+with `motor_get_current_draw`, temperature with `motor_get_temperature`, and
+battery voltage with `pros::battery::get_voltage`. Current uses mA, voltage mV,
+and temperature degrees Celsius. Each motor is recorded separately. An API error
+produces an absent reading, exported as an empty CSV field. Empty motor ports
+still permit chassis/battery logging. Duplicate physical ports and ports outside
+1–21 are rejected before movement when telemetry is enabled.
+See the [PROS motor telemetry reference](https://pros.cs.purdue.edu/v5/pros-4/group__cpp-motors.html)
+for the underlying measurement units and error behavior.
+
+**Command visibility:** LemLib 0.5.6 exposes neither its live PID output nor the
+last voltage/power commands from asynchronous motions. Forward trial command
+fields remain absent unless `config.telemetryCommandProbe` supplies them from
+your own controller instrumentation. This callback returns `TelemetryCommand`
+with optional `controllerOutput`, `leftCommandedMillivolts`, and
+`rightCommandedMillivolts`. Use a prompt, thread-safe snapshot. Measured motor
+voltage is never used to invent a requested voltage or PID output.
+
+Without a probe, coast/return-settle samples have known zero commands; moving
+return samples record the known negative return power. Their voltage fields are
+the nominal `12000 * power / 127` equivalents of LemLib tank power, with
+`voltageIsPowerEquivalent=true`. These are labeled equivalents, not measured
+voltage or exact battery-compensated voltage requests. A supplied probe replaces
+these defaults on every recorded sample. Controller output uses signed motor-power
+units along the tuned axis; a custom probe must use that same convention.
+
+Samples cover trials, coasting, returns, and return settling. The default period
+is 20 ms and must be at least 10 ms. Phase/trial transitions are recorded even
+when the usual period has not elapsed. Recording stops at `maxTelemetrySamples`
+and sets `result.telemetryTruncated`; the tuning run continues. Increasing the
+limit uses more RAM, especially with many motors. With telemetry disabled, no
+motor telemetry reads or command-probe calls occur and the result buffer stays
+empty. With telemetry enabled, reads are sequential snapshots, not atomic across
+all motors. Telemetry work adds time to the control loop; probes must not block.
+
+`saveTelemetryCsv` writes one row per motor per sample, repeating chassis values;
+samples without motor readings still produce one chassis-only row. It includes
+units, final session status, truncation and voltage-equivalent flags. It exports
+failed sessions as well as accepted ones. No samples returns false without
+opening a file. Write after `run()` returns so SD latency does not affect motion.
+Check the return value for absent SD cards, write failures, and rename failures.
+Invalid poses or aborts can end a run before another sample is recorded; the
+final session status is retained in the CSV. See `examples/telemetry_autonomous.cpp`.
 
 The `guantune` namespace alias is available wherever types.hpp is included.
 The older relay constructors, conversion and Result::print are deleted, yielding

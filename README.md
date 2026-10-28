@@ -3,6 +3,9 @@
 A PROS/LemLib PID tuner that runs measured trials, adjusts gains, and returns to
 the saved starting pose between attempts. It supports lateral moves and angular
 turns, multiple target distances, battery logging and independent measurement checks.
+Optional bounded telemetry records tuning/return kinematics and PROS motor
+voltage, current and temperature for CSV export; see the tuning reference for
+command-probe requirements and units.
 
 **Status:** sanitizer host tests, seeded physics tests, and a local ARM library/
 template build, template installation, and consumer link pass with PROS 4.2.1 /

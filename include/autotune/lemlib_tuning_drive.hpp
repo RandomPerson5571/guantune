@@ -1,6 +1,7 @@
 #pragma once
 
 #include "autotune/self_tuning_auton.hpp"
+#include "autotune/pid_validation.hpp"
 #include <lemlib/api.hpp>
 #if __has_include("autotune/dependency_version.hpp")
 #include "autotune/dependency_version.hpp"
@@ -14,6 +15,7 @@
 #include <pros/rtos.hpp>
 #include <memory>
 #include <new>
+#include <limits>
 
 namespace autotune {
 
@@ -42,7 +44,26 @@ public:
         if (pidGuard_) { pidGuard_->restore(); pidGuard_.reset(); }
     }
     bool calibrated() override { return ready_(); }
-    double batteryMillivolts() override { return pros::battery::get_voltage(); }
+    double batteryMillivolts() override {
+        const auto voltage = pros::battery::get_voltage();
+        return voltage == PROS_ERR ? std::numeric_limits<double>::quiet_NaN() : static_cast<double>(voltage);
+    }
+    std::vector<MotorTelemetry> motorTelemetry(const std::vector<std::int8_t>& ports) override {
+        std::vector<MotorTelemetry> readings;
+        readings.reserve(ports.size());
+        for (auto port : ports) {
+            MotorTelemetry reading;
+            reading.port = port;
+            const auto voltage = pros::c::motor_get_voltage(port);
+            const auto current = pros::c::motor_get_current_draw(port);
+            const auto temperature = pros::c::motor_get_temperature(port);
+            if (voltage != PROS_ERR) reading.measuredMillivolts = voltage;
+            if (current != PROS_ERR) reading.currentMilliamps = current;
+            if (std::isfinite(temperature)) reading.temperatureCelsius = temperature;
+            readings.push_back(reading);
+        }
+        return readings;
+    }
     bool supportsAngular() const override { return true; }
     void selectMode(Mode mode) override { restoreGains(); mode_ = mode; }
     void turnTo(double heading, std::uint32_t timeout, double output) override {
@@ -99,10 +120,13 @@ private:
 // Gains use LemLib's per-update convention at a 10 ms interval.
 inline std::optional<lemlib::ControllerSettings> toLemLib(
     const AutonTuneResult& result, lemlib::ControllerSettings base) {
-    if (result.status != AutonTuneStatus::COMPLETE) return std::nullopt;
+    if (result.status != AutonTuneStatus::COMPLETE || !detail::validPidGains(result.gains) ||
+        !detail::validPidScalar(result.integralWindupRange) || result.integralWindupRange <= 0)
+        return std::nullopt;
     base.kP = result.gains.kP;
     base.kI = result.gains.kI;
     base.kD = result.gains.kD;
+    base.windupRange = result.integralWindupRange;
     return base;
 }
 
