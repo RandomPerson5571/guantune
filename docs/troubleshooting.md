@@ -1,5 +1,28 @@
 # Troubleshooting
 
+## No movement from opcontrol
+
+Enabled driver control is supported. Run tuning synchronously from a button
+branch and pause all other motor-writing tasks for its duration; see
+[`examples/opcontrol.cpp`](../examples/opcontrol.cpp). Do not launch tuning in a
+background task while the joystick loop continues sending zero commands.
+
+Print `guantune::statusName(result.status)` immediately after the call, including
+failed runs. `DRIVE_UNAVAILABLE` means the robot is disabled, another motion/run
+is active, or no motion was observed within the 250 ms startup window.
+`INVALID_CONFIG` means configuration was rejected before movement: for example,
+`maxOutput` below 60, a target at/above `maxTravelInches`, or insufficient trials
+for confirmation. `NOT_CALIBRATED` means the readiness callback returned false;
+`LOW_BATTERY` and `SENSOR_FAULT` require inspecting voltage/odometry readings.
+
+The runner now waits for asynchronous motion startup instead of cancelling on
+the first idle poll. A delayed-start regression reproduced that premature
+cancellation; this does not establish the cause of every hardware no-movement
+report. If no starting message appears in the example, check the button branch
+and installed program. If the call never returns, capture the last message and
+check the motion task/odometry rather than treating a compile/link pass as a
+successful robot test.
+
 ## RETURN_FAILED and the final robot state
 
 The runner cancels/joins owned motion, sends zero manual drive output and restores

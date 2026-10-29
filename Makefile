@@ -23,3 +23,8 @@ ifeq ($(wildcard common.mk),)
 $(error Missing PROS dependencies. Run python3 scripts/prepare_build.py /tmp/guantune-build first)
 endif
 include common.mk
+
+# Run after common.mk creates the template. Keep bin/autotune.a debuggable;
+# only the distributable copy loses debug sections and gets ZIP compression.
+template::
+	python3 scripts/optimize_template.py "$(LIBNAME)@$(VERSION).zip" --strip "$(STRIP)"

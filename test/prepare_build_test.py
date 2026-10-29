@@ -38,6 +38,7 @@ class PrepareBuildTest(unittest.TestCase):
             self.assertIn('506', (destination / 'include/autotune/dependency_version.hpp').read_text())
             self.assertTrue((destination / 'src/autotune/lemlib_tuning_drive.cpp').is_file())
             self.assertTrue((destination / 'docs/compatibility.md').is_file())
+            self.assertTrue((destination / 'scripts/optimize_template.py').is_file())
 
     def test_existing_destination_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -31,6 +31,10 @@ jobs:
       matrix:
         include:
           - name: pinned
+            kernel: '4.2.2'
+            lemlib: '0.5.6'
+            toolchain: '15.2.rel1'
+          - name: legacy
             kernel: '4.2.1'
             lemlib: '0.5.6'
             toolchain: '13.3.rel1'
@@ -55,6 +59,8 @@ jobs:
           echo "$RUNNER_TEMP/arm-gnu-toolchain-${version}-x86_64-arm-none-eabi/bin" >> "$GITHUB_PATH"
       - name: Install PROS CLI
         run: pip install pros-cli==3.5.6 "setuptools<81"
+      - name: Test template optimization with ARM tools
+        run: python3 -m unittest discover -s test -p template_optimization_test.py
       - name: Prepare build project
         env:
           KERNEL_VERSION: ${{ matrix.kernel }}

@@ -8,16 +8,19 @@ voltage, current and temperature for CSV export; see the tuning reference for
 command-probe requirements and units.
 
 **Status:** sanitizer host tests, seeded physics tests, and a local ARM library/
-template build, template installation, and consumer link pass with PROS 4.2.1 /
-LemLib 0.5.6. Remote CI runs and robot sessions still require validation.
+template build, template installation, and monolithic/hot-cold consumer links
+pass locally with PROS 4.2.2 / ARM GCC 15.2.1 / LemLib 0.5.6.
+Remote CI runs and robot sessions still require validation.
 The simulation is a limited motor model, not evidence of hardware convergence.
 
 ## Install
 
-Use PROS kernel 4.2.1 with LemLib 0.5.6. Copy include/autotune/ and src/autotune/
+Use PROS kernel 4.2.2 with LemLib 0.5.6. Copy include/autotune/ and src/autotune/
 into an existing PROS project, preserving paths. Keep your chassis/odometry setup.
 See [compatibility and template builds](docs/compatibility.md) for reproducible
-setup and the pinned/latest CI matrix. The library needs C++17 or newer.
+setup and the pinned/legacy/latest CI matrix. The core needs C++17 or newer;
+PROS 4.2.2's build uses C++26 by default. The
+[size investigation](docs/package-size.md) explains template and robot binary sizes.
 
 ## Quick start
 
@@ -27,14 +30,21 @@ After successful calibration, with exclusive drivetrain access and a clear path:
 #include "autotune/lemlib_tuning_drive.hpp"
 #include "autotune/output.hpp"
 
-// Inside autonomous(), using your configured chassis:
+// Inside autonomous(), or a blocking opcontrol() button branch:
 auto result = guantune::tuneLateral(chassis);
+std::printf("Guantune: %s\n", guantune::statusName(result.status));
 if (result.status == guantune::AutonTuneStatus::COMPLETE) {
     bool saved = guantune::saveAcceptedGains(result, "/usd/guantune.json");
     // Check saved; print controllerSettingsSnippet(result) if SD is unavailable.
     (void)saved;
 }
 ```
+
+For driver control, use the [opcontrol example](examples/opcontrol.cpp): pressing
+X runs tuning synchronously and pauses joystick writes until it returns. Other
+tasks must also yield drivetrain ownership. Enabled driver control is supported;
+the robot does not need to be in autonomous mode. Print the returned status even
+when tuning fails, so an early exit is visible.
 
 For explicit readiness, clearance confirmation, multiple targets or custom search,
 configure AutonTuneConfig and use SelfTuningAuton with LemLibTuningDrive. Read the

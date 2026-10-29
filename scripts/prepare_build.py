@@ -55,6 +55,8 @@ def main():
     (destination / "include/autotune/dependency_version.hpp").write_text(
         "#pragma once\n#define GUANTUNE_LEMLIB_VERSION " + str(numeric) + "\n")
     shutil.copytree(source / "docs", destination / "docs")
+    (destination / "scripts").mkdir(exist_ok=True)
+    shutil.copy2(source / "scripts/optimize_template.py", destination / "scripts/optimize_template.py")
     for filename in ("Makefile", "README.md", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md"):
         shutil.copy2(source / filename, destination / filename)
     print("Build project ready:", destination)

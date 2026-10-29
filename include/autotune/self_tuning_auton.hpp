@@ -91,6 +91,25 @@ enum class AutonTuneStatus {
     NOT_CALIBRATED, LOW_BATTERY, MEASUREMENT_DISAGREEMENT, UNSUPPORTED_MODE
 };
 
+inline const char* statusName(AutonTuneStatus status) {
+    switch (status) {
+        case AutonTuneStatus::COMPLETE: return "COMPLETE";
+        case AutonTuneStatus::TRIAL_LIMIT: return "TRIAL_LIMIT";
+        case AutonTuneStatus::ABORTED: return "ABORTED";
+        case AutonTuneStatus::INVALID_CONFIG: return "INVALID_CONFIG";
+        case AutonTuneStatus::DRIVE_UNAVAILABLE: return "DRIVE_UNAVAILABLE";
+        case AutonTuneStatus::SENSOR_FAULT: return "SENSOR_FAULT";
+        case AutonTuneStatus::TRAVEL_LIMIT: return "TRAVEL_LIMIT";
+        case AutonTuneStatus::GAIN_LIMIT: return "GAIN_LIMIT";
+        case AutonTuneStatus::RETURN_FAILED: return "RETURN_FAILED";
+        case AutonTuneStatus::NOT_CALIBRATED: return "NOT_CALIBRATED";
+        case AutonTuneStatus::LOW_BATTERY: return "LOW_BATTERY";
+        case AutonTuneStatus::MEASUREMENT_DISAGREEMENT: return "MEASUREMENT_DISAGREEMENT";
+        case AutonTuneStatus::UNSUPPORTED_MODE: return "UNSUPPORTED_MODE";
+    }
+    return "UNKNOWN";
+}
+
 struct TrialReport {
     Gains gains{1.1, 0, 1.1};
     double target = 0;

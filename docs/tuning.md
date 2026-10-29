@@ -97,6 +97,13 @@ reposition the robot, and a blocking callback must handle its own cancellation.
 Keep the tuner and adapter alive throughout the run. Do not run driver control,
 other tuners, or unrelated LemLib motions concurrently.
 
+Calling from enabled `opcontrol()` is supported. Use a synchronous button branch
+so joystick commands pause for the run, as shown in `examples/opcontrol.cpp`.
+After dispatch, the runner allows up to 250 ms to observe asynchronous motion
+startup before returning `DRIVE_UNAVAILABLE`. An initial idle poll alone does
+not mean the trial has completed. Abort, disable and sensor checks still apply
+while waiting. Use `statusName(result.status)` to report every outcome.
+
 ## Measurement limits and stopping
 
 Distance comes from chassis odometry projected onto the fixed starting heading,

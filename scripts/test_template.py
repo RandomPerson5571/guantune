@@ -21,8 +21,12 @@ def main():
         names = package.namelist()
         if any(name.startswith(('include/pros/', 'include/lemlib/', 'include/fmt/')) for name in names):
             raise SystemExit('Template must not bundle dependency headers')
+        if any(name.endswith('.a') and name != 'firmware/autotune.a' for name in names):
+            raise SystemExit('Template must not bundle dependency archives')
         if 'firmware/autotune.a' not in names:
             raise SystemExit('Template is missing its library archive')
+        if package.getinfo('firmware/autotune.a').compress_type != zipfile.ZIP_DEFLATED:
+            raise SystemExit('Template library must use ZIP compression')
     pros = shutil.which('pros')
     if not pros:
         parser.error('PROS CLI must be on PATH')
@@ -63,6 +67,10 @@ void autonomous() {
         'EXTRA_CXXFLAGS=-Iinclude -DGUANTUNE_ALLOW_UNTESTED_LEMLIB')
     if not (destination / 'bin/monolith.bin').is_file():
         raise SystemExit('PROS did not produce a consumer binary')
+    run('make', 'all', 'EXTRA_CXXFLAGS=-Iinclude -DGUANTUNE_ALLOW_UNTESTED_LEMLIB')
+    for name in ('cold.package.bin', 'hot.package.bin'):
+        if not (destination / 'bin' / name).is_file():
+            raise SystemExit('PROS did not produce ' + name)
 
 
 if __name__ == '__main__':

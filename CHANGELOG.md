@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Wait for asynchronous motion startup before treating idle as completion;
+  cover delayed/missing startup, abort and clock wrap. Add readable result
+  statuses and a blocking opcontrol example that pauses joystick writes.
+- Test PROS kernel 4.2.2 / ARM GCC 15.2.1 / LemLib 0.5.6 locally and pin it in
+  CI, retaining the 4.2.1 job. Check both monolithic and hot/cold consumer links.
+- Strip debug information only from the distributed library and compress the
+  template ZIP; retain the local debug archive. Document measured size costs.
 - Add opt-in bounded telemetry for trials/coast/return/settle, per-motor PROS
   voltage/current/temperature reads, optional command instrumentation, and CSV
   export of successful or failed sessions. Keep telemetry off by default.

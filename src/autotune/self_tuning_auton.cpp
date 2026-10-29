@@ -6,6 +6,7 @@
 namespace autotune {
 namespace {
 constexpr std::uint32_t periodMs = 10;
+constexpr std::uint32_t motionStartupMs = 250;
 constexpr double pi = 3.14159265358979323846;
 double headingError(double current, double start) {
     return std::remainder(start - current, 360.0);
@@ -154,6 +155,7 @@ AutonTuneStatus SelfTuningAuton::trial(const Gains& gains, const DrivePose& star
     int side = 1;
     std::uint32_t settledFor = 0;
     bool observingStop = false;
+    bool motionObserved = false;
     std::uint32_t stoppedAt = 0;
     report.target = config_.distanceInches;
     if (!drive_.calibrated()) return AutonTuneStatus::NOT_CALIBRATED;
@@ -217,6 +219,14 @@ AutonTuneStatus SelfTuningAuton::trial(const Gains& gains, const DrivePose& star
         const double speed = dt ? delta * 1000 / dt : 0;
         if (speed > config_.maxSensorSpeed) return AutonTuneStatus::SENSOR_FAULT;
         report.finalSpeedInchesPerSecond = speed;
+        const bool moving = drive_.isMoving();
+        // Async commands can return while their task is still queued. An idle
+        // first poll is not evidence of completion. Displacement also detects a
+        // short motion that starts and finishes between samples.
+        motionObserved = motionObserved || moving ||
+            std::abs(distance) >= std::max(config_.toleranceInches, config_.crossingDeadband);
+        if (!observingStop && !motionObserved && elapsed >= motionStartupMs)
+            return AutonTuneStatus::DRIVE_UNAVAILABLE;
         if (dt && std::abs(error) <= config_.toleranceInches && speed <= config_.maxSettledSpeed)
             settledFor += dt;
         else settledFor = 0;
@@ -224,7 +234,7 @@ AutonTuneStatus SelfTuningAuton::trial(const Gains& gains, const DrivePose& star
             report.settled = settledFor >= config_.settleMs;
             if (static_cast<std::uint32_t>(now - stoppedAt) >= std::max(config_.postStopMs, config_.settleMs))
                 return AutonTuneStatus::COMPLETE; // Valid trial; may still have missed target.
-        } else if (!drive_.isMoving() || settledFor >= config_.settleMs || elapsed >= config_.trialTimeoutMs) {
+        } else if ((!moving && motionObserved) || settledFor >= config_.settleMs || elapsed >= config_.trialTimeoutMs) {
             report.settled = settledFor >= config_.settleMs;
             report.timedOut = elapsed >= config_.trialTimeoutMs && !report.settled;
             observingStop = true;

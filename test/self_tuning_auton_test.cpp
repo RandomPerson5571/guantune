@@ -86,7 +86,59 @@ struct FakeDrive : TuningDrive {
     void stopped() { assert(!active && !trialGains); }
 };
 
+// A queued asynchronous motion need not report running before its task starts.
+struct DelayedStartDrive : FakeDrive {
+    bool pending = false;
+    std::uint32_t queuedAt = 0;
+    unsigned startupDelayMs = 40;
+    void moveTo(const DrivePose& target, bool forwards, std::uint32_t timeout, double speed) override {
+        FakeDrive::moveTo(target, forwards, timeout, speed);
+        active = false;
+        pending = true;
+        queuedAt = time;
+    }
+    void delayMs(std::uint32_t ms) override {
+        FakeDrive::delayMs(ms);
+        if (pending && static_cast<std::uint32_t>(time - queuedAt) >= startupDelayMs) {
+            pending = false;
+            active = true;
+            start = time;
+        }
+    }
+    void stop() override {
+        pending = false;
+        FakeDrive::stop();
+    }
+};
+
 int main() {
+    for (auto initialTime : {std::uint32_t{0}, std::uint32_t{0xfffffff0u}}) {
+        DelayedStartDrive drive;
+        drive.time = initialTime;
+        auto result = SelfTuningAuton(drive).run();
+        assert(result.status == AutonTuneStatus::COMPLETE);
+        assert(result.trials.size() == 2);
+        drive.stopped();
+    }
+    {
+        DelayedStartDrive drive;
+        drive.startupDelayMs = 1000;
+        auto result = SelfTuningAuton(drive).run();
+        assert(result.status == AutonTuneStatus::DRIVE_UNAVAILABLE);
+        assert(drive.time == 250 && result.trials.size() == 1);
+        assert(!drive.pending && !drive.active);
+        drive.stopped();
+    }
+    {
+        DelayedStartDrive drive;
+        SelfTuningAuton tuner(drive);
+        drive.cancel = &tuner;
+        drive.startupDelayMs = 200;
+        auto result = tuner.run();
+        assert(result.status == AutonTuneStatus::ABORTED);
+        assert(drive.time == 100 && !drive.pending);
+        drive.stopped();
+    }
     assert(SelfTuningAuton::gainStep(1.1) == 3);
     assert(SelfTuningAuton::gainStep(6) == 1);
     assert(SelfTuningAuton::gainStep(12) == 0.1);
