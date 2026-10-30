@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Separate session orchestration, configuration validation, motion tracking,
+  gain search, hardware operations, and persistence. Split public types into
+  focused headers while retaining the existing session entry points.
+- Keep configuration immutable during trials; use named gain adjustments and
+  explain coordinate, timing, ownership, and PID restoration decisions.
+- Fix angular phase-boundary tracking, repeated queued motion startup, invalid
+  return timing, and unused gain adjustments after the trial limit. Add
+  regression cases and a code map for maintainers.
+
+- Normalize angular targets in the core and LemLib adapter to [0, 360),
+  including float rounding at 360; retain unwrapped displacement for tuning
+  and returns. Cover negative/multiple-turn starts in complete sessions.
+
+- Integrate the supplied replacement algorithm: proportional gain steps, bounded
+  unsettled retries, P backoff at the D cap, normalized best-trial ranking,
+  latched aborts, ALREADY_RUNNING, idle waits, and clock-stall watchdogs.
+- Add predictive return stopping with bounded creep retries. Restore strict
+  resting-battery checks, brief-sag tolerance under load, bounded telemetry,
+  throttled motor sampling, and CSV export in separate implementation modules.
+- Require overshoot headroom for targets and angular targets below 180 degrees.
+
+- Start the opcontrol example automatically without controller button presses;
+  retain the trial limit and stop/fault behavior, then resume driver control.
+
 - Wait for asynchronous motion startup before treating idle as completion;
   cover delayed/missing startup, abort and clock wrap. Add readable result
   statuses and a blocking opcontrol example that pauses joystick writes.
@@ -9,9 +33,6 @@
   CI, retaining the 4.2.1 job. Check both monolithic and hot/cold consumer links.
 - Strip debug information only from the distributed library and compress the
   template ZIP; retain the local debug archive. Document measured size costs.
-- Add opt-in bounded telemetry for trials/coast/return/settle, per-motor PROS
-  voltage/current/temperature reads, optional command instrumentation, and CSV
-  export of successful or failed sessions. Keep telemetry off by default.
 - Check independent displacement throughout returns, including before reverse
   power, and detect translational sensor jumps during angular returns.
 - Preserve the tested integral windup range in results, settings conversion,
@@ -23,8 +44,7 @@
 - Add GCC/Clang C++17/C++20 sanitizer CI and pinned/latest real PROS builds.
 - Add multi-target confirmation, angular trials, best-trial fallback, optional
   bracket refinement and a bounded custom gain policy.
-- Add calibration/clearance hooks, battery floors and per-trial voltage records,
-  plus independent displacement disagreement checks.
+- Add calibration/clearance hooks and independent displacement disagreement checks.
 - Restore const-gain PIDs with an idle RAII guard; exercise exception cleanup,
   safety paths and seeded motor/friction/noise simulations.
 - Add accepted-gain SD persistence, ControllerSettings snippets, simple tuning

@@ -59,3 +59,18 @@ CI compatibility ledger (resolved versions are uploaded by each matrix job):
 | Latest | Compatible stable | 15.2.rel1 | Weekly CI probe; inspect resolved-version artifact and job status |
 
 Physical validation is pending; see hardware-validation.md.
+
+## Replacement integration — 2026-10-29
+
+The supplied replacement was integrated and tested locally with **PROS 4.2.2 /
+ARM GCC 14.3.1 / LemLib 0.5.6**, using the installed desktop toolchain. This is
+a different compiler from the CI pin above. The library/template build, fresh
+template installation, all four example compilations, and monolithic/hot-cold
+consumer links passed. Clang C++17/C++20 sanitizer suites and the native settings
+conversion test (with the documented Apple Clang fmt workaround) also passed.
+
+The published base's
+[latest-stable job](https://github.com/RandomPerson5571/guantune/actions/runs/40933146371/job/123656590220)
+is successful. It does not validate the current uncommitted integration. See
+`pasted-implementation.md` for the behavior changes and local evidence. Physical
+validation remains pending.

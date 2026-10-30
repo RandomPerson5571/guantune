@@ -14,7 +14,9 @@
   motor power, not a speed in inches per second.
 - `returnToleranceInches`: radius around the saved start required for a return;
   default 0.5 inch. This is separate from the forward `range`.
-- `returnTimeoutMs`: return deadline including settling; default 5000 ms.
+- `returnTimeoutMs`: return deadline including settling; default 5000 ms. It
+  must exceed both `settleMs` and `postStopMs`; otherwise the config is rejected
+  before movement.
 - `trialTimeoutMs`: forward trial deadline before stopping and observing coast;
   default 5000 ms.
 - `allowIntegral`: enable last-resort integral tuning; default false.
@@ -23,9 +25,11 @@
   can raise its limit to at least 60 near the target.
 
 Additional limits, gain caps, and settling settings are declared in
-[`AutonTuneConfig`](include/autotune/self_tuning_auton.hpp). Invalid configuration
+[`AutonTuneConfig`](../include/autotune/tuning_config.hpp). Invalid configuration
 returns `INVALID_CONFIG` before movement. The default travel limit is 36 inches;
-raise it appropriately if increasing `distanceInches` beyond that limit.
+each target must leave `max(2 * toleranceInches, 0.1 * target)` of overshoot
+headroom below that limit. For example, a 33-inch target is invalid with a
+36-inch limit. Angular targets must be strictly less than 180 degrees.
 
 ## Trial and return sequence
 
@@ -36,8 +40,9 @@ raise it appropriately if increasing `distanceInches` beyond that limit.
    overshoot, meaningful target crossings, and settling behavior.
 4. Stop the motion and observe coasting. Restore the original lateral PID.
 5. Back up slowly with `chassis.tank(-returnPower, -returnPower, true)`, continuing
-   to read chassis pose. Stop when within the return tolerance and wait for the
-   robot to settle there.
+   to read chassis pose. Stop early by two sample periods of measured travel,
+   observe coast, and creep again if it stops short. Accept only after the robot
+   is stationary inside the actual return tolerance.
 6. Adjust gains or confirm the current gains, then start the next forward trial.
 
 If a trial moves only 20 inches, the robot backs toward its actual saved start;
@@ -46,8 +51,8 @@ it does not command a fixed 24-inch reverse move. The return does not use
 near (0, 0). With another starting pose, it uses that saved coordinate. It never
 resets odometry to make a return appear complete.
 
-A return that times out, coasts outside tolerance, passes the start without
-entering tolerance, or cannot reach it because of sideways error produces
+A return that times out, coasts past the start outside tolerance, or cannot
+reach the origin because of sideways error produces
 `RETURN_FAILED`. No subsequent trial starts. Returns also follow the final
 confirmation or trial-limit run. Aborted, disabled, or unsafe trials stop without
 automatically reversing.
@@ -57,13 +62,17 @@ automatically reversing.
 - Start each session at P=1.1, I=0, D=1.1.
 - Increase D for overshoot beyond the configured forward range, or at least
   three target crossings. Crossings use a default +/-0.5-inch deadband.
-- Increase P for unsuccessful trials without excessive overshoot or oscillation.
-- Increase P/D by 3 below a gain of 6, by 1 from 6 to below 12, and by 0.1 from
-  12 onward. Switching between P and D adjustments selects 0.1 refinement for
-  the rest of the session.
+- Increase P for stationary undershoot without excessive overshoot or oscillation.
+- Coarse P/D steps are 3 below a gain of 6; above that they are 20% of the
+  current gain, with a minimum step of 1. After a reversal, fine steps are 2%
+  of the current gain, with a minimum step of 0.1.
+- If D is capped and overshoot remains, reduce P toward the starting value.
+- A trial within tolerance that is not settled retries the same gains up to
+  five times. A sixth such failure stops with `TRIAL_LIMIT`. These retries
+  consume the ordinary trial budget; the budget is never increased.
 - Require two consecutive successful trials by default before accepting gains.
 - Keep I at zero unless `allowIntegral` is enabled. Even then, require eight P/D
-  adjustments, three consecutive undershoots, P >= 12, no meaningful crossings,
+  adjustments, three consecutive undershoots, P >= min(12, maxKp), no meaningful crossings,
   and a stationary final error within the 3-inch integral range. Increase I by
   0.001 up to 0.05. If overshoot or oscillation appears, reduce existing I before
   increasing D.
@@ -76,7 +85,9 @@ starting point for real-robot verification and manual refinement.
 
 Only `AutonTuneStatus::COMPLETE` means the gains passed the required confirmation
 trials and the robot successfully returned. On other outcomes, `result.gains`
-contains the last tested gains (or the best measured candidate at TRIAL_LIMIT) and should not be treated as an accepted result.
+contains the best safely returned trial's gains, or the starting gains if none
+completed. This recommendation is diagnostic and must not be treated as accepted.
+The gains actually attempted remain in each `TrialReport`.
 
 `result.trials` records each trial's gains, forward distance, final error/speed,
 peak overshoot, crossings, elapsed time, settlement, timeout, and
@@ -91,14 +102,24 @@ when constructing your chassis. Tuning temporarily
 changes the chassis's lateral PID and restores it afterward; it does not
 permanently apply the result.
 
-`run()` blocks. Another task can call `tuner.abort()` during movement. An optional
-`BeforeTrial` callback can print progress or return false to abort. It must not
+`run()` blocks. Another task can call `tuner.abort()` during movement. Abort is
+latched: an idle abort cancels exactly the next run, and the owning run clears it
+on exit, including exception unwinding. A concurrent `run()` returns
+`ALREADY_RUNNING` without consuming the active session's abort flag.
+Between trials, an idle wait allows asynchronous motion bookkeeping to catch
+up for at most max(postStopMs, 100 ms). Trial, return, and idle loops also have a
+1000-poll watchdog so a stalled clock cannot make a deadline loop run forever.
+An optional `BeforeTrial` callback can print progress or return false to abort. It must not
 reposition the robot, and a blocking callback must handle its own cancellation.
 Keep the tuner and adapter alive throughout the run. Do not run driver control,
 other tuners, or unrelated LemLib motions concurrently.
 
-Calling from enabled `opcontrol()` is supported. Use a synchronous button branch
-so joystick commands pause for the run, as shown in `examples/opcontrol.cpp`.
+Calling from enabled `opcontrol()` is supported. Call tuning synchronously at
+the start of opcontrol, before the joystick loop, as shown in
+`examples/opcontrol.cpp`. The session starts without button presses, adjusts
+gains and returns automatically between trials, and stops on completion, the
+configured trial limit, or a fault. Normal driver control resumes afterward.
+Do not put the tuning call inside the joystick loop or retry it on every tick.
 After dispatch, the runner allows up to 250 ms to observe asynchronous motion
 startup before returning `DRIVE_UNAVAILABLE`. An initial idle poll alone does
 not mean the trial has completed. Abort, disable and sensor checks still apply
@@ -141,11 +162,16 @@ the next candidate at the first target. maxTrials counts all individual targets;
 allow at least targets.size() * confirmationTrials plus search attempts.
 
 For turns use tuneAngular(chassis, config), distanceInches=90,
-testDistances={90,180}, maxTravelInches=210, maxSensorSpeed=400 and generous
+testDistances={90,170}, maxTravelInches=210, maxSensorSpeed=400 and generous
 trial/return timeouts. Angular distance, tolerance, deadband, travel and speed
 settings use degrees and degrees/second despite their legacy inch field names.
-Turns are clockwise; the return uses fixed counterclockwise tank power. Angular
-progress is unwrapped across 0/360, including the return from 180 degrees.
+Absolute headings are normalized to [0, 360) degrees before the core requests
+an angular motion and again at LemLib's float precision. Thus 720 becomes 0,
+-260 becomes 100, and a rounded 360 becomes 0. Negative or multi-revolution
+sensor headings do not change the requested turn distance. Turns are clockwise; the
+return uses fixed counterclockwise tank power. Angular
+progress is unwrapped across 0/360. A 180-degree target is rejected; use a
+smaller angle such as 170 degrees.
 In angular mode, maxCrossTrackInches bounds total translational drift in inches. Do not reuse a
 lateral independent-distance callback for angular trials.
 `maxSensorSpeed` is the angular jump limit in degrees/second;
@@ -156,8 +182,9 @@ only the targets actually used are validated against travel and tolerance limits
 
 ## Search policy
 
-At TRIAL_LIMIT, gains refer to the best safely returned trial, ranked by absolute
-final error + peak overshoot + crossings * tolerance. bestTrial identifies it.
+On an unsuccessful session, gains refer to the best safely returned trial,
+ranked by (absolute final error + peak overshoot + crossings * tolerance) / target.
+`bestTrial` identifies it. Normalization makes different target lengths comparable.
 This is a diagnostic fallback, not accepted gains; a candidate's success on one
 target does not imply success on every target. Only COMPLETE enables conversion
 and persistence. The default policy retains the original deterministic schedule.
@@ -165,19 +192,19 @@ and persistence. The default policy retains the original deterministic schedule.
 bisectOnReversal optionally tests the midpoint of the two preceding candidates
 when the adjustment direction reverses between undershoot and overshoot. This is
 bracket refinement, not a guarantee of monotonic behavior or convergence.
-adjustmentPolicy overrides the next candidate after a failed trial and receives
-tested gains, final error, overshoot and trial index. All returned gains must be
+adjustmentPolicy overrides the next candidate after a failed trial that requires
+a gain adjustment, and receives tested gains, final error, overshoot and trial
+index. It is not called for unsettled same-gain retries or after the last allowed
+trial. Its actual gain changes determine reversal and integral-gating history. All returned gains must be
 finite and within configured caps; otherwise GAIN_LIMIT stops the run.
 Gain caps, policy candidates, and the windup range must also fit LemLib's float
 parameters. Oversized caps produce INVALID_CONFIG before movement; out-of-range
 policy candidates produce GAIN_LIMIT before they can be installed.
 
-## Readiness, clearance, battery and independent measurement
+## Readiness, clearance and independent measurement
 
-The adapter checks finite pose, idle motion, competition availability and battery
-before moving. minimumBatteryMillivolts defaults to 7000; battery values are mV.
-Trials record starting/minimum voltage; both trial and return stop on LOW_BATTERY.
-Invalid voltage readings produce SENSOR_FAULT. Pick a floor suitable for your robot.
+The adapter checks finite pose, idle motion and competition availability
+before moving.
 
 LemLib exposes no public calibrated flag. Pass a readiness callback to the adapter
 or tuneLateral/tuneAngular, e.g. `[&] { return calibrationComplete && !imu.is_calibrating(); }`.
@@ -214,75 +241,49 @@ returns a copy-pasteable ControllerSettings copy and gain assignments preserving
 your baseSettings exit thresholds and slew, while applying the tested gains and
 windup range. It is empty on failed results or unrepresentable PID parameters.
 
-## Optional telemetry
-
-Telemetry is disabled by default. Enable it explicitly and provide the signed
-PROS drivetrain motor ports (negative for reversed motors):
-
-```cpp
-guantune::AutonTuneConfig config;
-config.enableTelemetry = true;
-config.telemetryMotorPorts = {-1, -2, 3, 4}; // Replace with your chassis ports.
-config.telemetryPeriodMs = 20;
-config.maxTelemetrySamples = 4096;
-auto result = guantune::tuneLateral(chassis, config);
-bool saved = guantune::saveTelemetryCsv(result, "/usd/guantune-telemetry.csv");
-```
-
-`result.telemetry` contains timestamps, session elapsed time, zero-based trial
-index, mode, phase, target/actual position, signed velocity, battery voltage,
-commanded left/right voltage, controller output, and per-motor measured voltage,
-current, and temperature. Positions are displacement from the fixed session
-origin in inches (lateral) or unwrapped degrees (angular). Returns target zero.
-Velocity is the signed finite difference of control samples, in inches/second or
-degrees/second; it is absent when no time elapsed. Timestamps use the raw drive
-clock; elapsed time handles its 32-bit wrap. Sampling starts with the first trial.
-
-The LemLib adapter reads motor voltage with `pros::c::motor_get_voltage`, current
-with `motor_get_current_draw`, temperature with `motor_get_temperature`, and
-battery voltage with `pros::battery::get_voltage`. Current uses mA, voltage mV,
-and temperature degrees Celsius. Each motor is recorded separately. An API error
-produces an absent reading, exported as an empty CSV field. Empty motor ports
-still permit chassis/battery logging. Duplicate physical ports and ports outside
-1–21 are rejected before movement when telemetry is enabled.
-See the [PROS motor telemetry reference](https://pros.cs.purdue.edu/v5/pros-4/group__cpp-motors.html)
-for the underlying measurement units and error behavior.
-
-**Command visibility:** LemLib 0.5.6 exposes neither its live PID output nor the
-last voltage/power commands from asynchronous motions. Forward trial command
-fields remain absent unless `config.telemetryCommandProbe` supplies them from
-your own controller instrumentation. This callback returns `TelemetryCommand`
-with optional `controllerOutput`, `leftCommandedMillivolts`, and
-`rightCommandedMillivolts`. Use a prompt, thread-safe snapshot. Measured motor
-voltage is never used to invent a requested voltage or PID output.
-
-Without a probe, coast/return-settle samples have known zero commands; moving
-return samples record the known negative return power. Their voltage fields are
-the nominal `12000 * power / 127` equivalents of LemLib tank power, with
-`voltageIsPowerEquivalent=true`. These are labeled equivalents, not measured
-voltage or exact battery-compensated voltage requests. A supplied probe replaces
-these defaults on every recorded sample. Controller output uses signed motor-power
-units along the tuned axis; a custom probe must use that same convention.
-
-Samples cover trials, coasting, returns, and return settling. The default period
-is 20 ms and must be at least 10 ms. Phase/trial transitions are recorded even
-when the usual period has not elapsed. Recording stops at `maxTelemetrySamples`
-and sets `result.telemetryTruncated`; the tuning run continues. Increasing the
-limit uses more RAM, especially with many motors. With telemetry disabled, no
-motor telemetry reads or command-probe calls occur and the result buffer stays
-empty. With telemetry enabled, reads are sequential snapshots, not atomic across
-all motors. Telemetry work adds time to the control loop; probes must not block.
-
-`saveTelemetryCsv` writes one row per motor per sample, repeating chassis values;
-samples without motor readings still produce one chassis-only row. It includes
-units, final session status, truncation and voltage-equivalent flags. It exports
-failed sessions as well as accepted ones. No samples returns false without
-opening a file. Write after `run()` returns so SD latency does not affect motion.
-Check the return value for absent SD cards, write failures, and rename failures.
-Invalid poses or aborts can end a run before another sample is recorded; the
-final session status is retained in the CSV. See `examples/telemetry_autonomous.cpp`.
-
 The `guantune` namespace alias is available wherever types.hpp is included.
 The older relay constructors, conversion and Result::print are deleted, yielding
 compile-time diagnostics instead of unresolved symbols. They are not part of the
 implemented autonomous tuning API.
+
+## Battery monitoring
+
+`minimumBatteryMillivolts` defaults to 7000. Before a session or trial moves,
+readings below the threshold return `LOW_BATTERY` immediately. During trial,
+coast, and return sampling, a brief dip is tolerated: stop after 100 ms of
+consecutive low readings, or immediately below 85% of the threshold. A healthy
+reading resets that timer. NaN, infinity, and nonpositive readings produce
+`SENSOR_FAULT`. `TrialReport` retains starting and minimum forward-trial voltage.
+Pick a threshold suitable for your robot; these checks do not estimate charge.
+
+## Optional telemetry
+
+Set `enableTelemetry=true` to collect phase, target, position, signed velocity,
+battery voltage and optional motor readings in `result.telemetry`. Recording
+is disabled by default. `telemetryPeriodMs` defaults to 20 and must be at least
+10 ms. New trials and phase transitions are recorded even within that period.
+`maxTelemetrySamples` defaults to 4096 and must be in [1, 100000] when recording
+is enabled. Initial reservation is capped at 4096; the vector may grow to the
+configured limit. At capacity, recording stops and `telemetryTruncated` is set,
+but tuning continues. Large caps consume robot RAM.
+
+`telemetryMotorPorts` contains signed PROS ports in [-21, -1] or [1, 21], with
+no repeated physical motor. Motor I/O runs on the first record and every fifth
+record thereafter; records in between have empty motor arrays. Missing/invalid
+motor readings are absent values. They are not copied forward as fresh data.
+An empty port list still records chassis and battery information.
+
+LemLib does not expose its live PID command. Supply a prompt, thread-safe
+`telemetryCommandProbe` if your own instrumentation has it. Otherwise forward
+command fields remain absent; coast/settle commands are zero, and return power
+is known. The nominal `12000 * power / 127` return voltages are labeled with
+`voltageIsPowerEquivalent=true`; they are not measured or battery-compensated
+voltage commands. Signed velocity uses inches/s laterally or degrees/s angularly;
+position is displacement from the fixed origin. No elapsed time means no velocity.
+
+Call `saveTelemetryCsv(result, "/usd/guantune-telemetry.csv")` after the run to
+avoid SD writes in the control loop. Failed sessions can also be exported. CSV
+has one row per motor on motor-sampled records and one chassis-only row otherwise;
+absent values become empty fields. No samples returns false without opening a
+file. Both JSON and CSV exports use temporary-file/rename and report write failure.
+See `examples/telemetry_autonomous.cpp` for the recording setup.

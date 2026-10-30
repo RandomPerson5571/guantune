@@ -3,6 +3,8 @@
 Measured locally on 2026-10-28 with PROS CLI 3.5.6, kernel 4.2.2,
 ARM GNU 15.2.Rel1 (GCC 15.2.1), default gnu++26 and LemLib 0.5.6.
 These are compile/link measurements, not robot RAM or hardware tests.
+They describe the earlier implementation before battery checks and telemetry
+were removed; current binaries need fresh measurements.
 
 ## What made installation large
 
@@ -71,8 +73,8 @@ unstripped `.elf` is a debugging artifact; compare `.bin` sizes for upload cost.
 ## Reproduce
 
 Follow [compatibility.md](compatibility.md) to prepare, build and install the
-template using the explicit kernel/compiler versions above. The consumer script
-links all export helpers and then builds both package modes. For incremental
+template using the explicit kernel/compiler versions above. The current consumer script
+links JSON saving and the settings snippet and then builds both package modes. For incremental
 cost comparisons, use fresh disposable consumers with the same dependency
 versions, replace only `src/main.cpp` with the variants above, and compare
 `bin/monolith.bin`. For the unused hot/cold comparison, use empty competition

@@ -1,117 +1,62 @@
-#include "autotune/self_tuning_auton.hpp"
-#include <cassert>
-#include <cmath>
-#include <iostream>
-#include <limits>
+#include "support/scripted_drive.hpp"
 
-using namespace autotune;
+void testRepeatedDelayedStartup() {
+    CountingDelayedDrive drive;
+    AutonTuneConfig config;
+    config.range = 0.1;
+    config.crossingDeadband = 0.1;
+    config.maxTrials = 4;
+    const auto result = SelfTuningAuton(drive, config).run();
+    assert(result.status == AutonTuneStatus::COMPLETE);
+    assert(result.trials.size() == 2 && drive.startedMotions == 2);
+    assert(drive.cancelledBeforeStartup == 0);
+    assert(result.trials.back().settled && result.trials.back().returnedToStart);
+    drive.stopped();
+}
 
-struct FakeDrive : TuningDrive {
-    enum Profile { GOOD, SHORT, OVERSHOOT, OSCILLATE, NOISY, COAST, BAD_SENSOR, TOO_FAR } profile = GOOD;
-    struct Motion { DrivePose from, target; bool forwards; Gains gains; };
-    std::vector<Motion> motions;
-    std::uint32_t time = 0, start = 0, stoppedAt = 0;
-    DrivePose current{10, 20, 0}, from = current, target = current, home = current;
-    bool homeSaved = false;
-    double shortDistance = 22, returnOffset = 0;
-    bool enabled = true, active = false, forwards = true, coasting = false, trialGains = false;
-    bool abortOnReturn = false, disableOnReturn = false;
-    unsigned writes = 0;
-    Gains gains{10, 0, 5};
-    SelfTuningAuton* cancel = nullptr;
-    DrivePose pose() override {
-        const double ms = static_cast<std::uint32_t>(time - start);
-        if (active) {
-            if (forwards) {
-                double distance = std::min(24.0, ms * 0.024);
-                if (profile == SHORT) distance = std::min(shortDistance, ms * 0.024);
-                if (profile == OVERSHOOT) distance = ms < 1100 ? std::min(26.0, ms * 0.026) : std::max(24.0, 26 - (ms - 1100) * 0.01);
-                if (profile == OSCILLATE) distance = ms < 1000 ? ms * 0.024 : 24 + 2 * std::sin((ms - 1000) / 100);
-                if (profile == NOISY && ms >= 1000) distance = 24 + 0.02 * std::sin((ms - 1000) / 100);
-                if (profile == BAD_SENSOR) distance = std::numeric_limits<double>::quiet_NaN();
-                if (profile == TOO_FAR) distance = ms * 0.05;
-                const double radians = home.headingDegrees * 3.14159265358979323846 / 180;
-                const double initial = (from.x - home.x) * std::sin(radians) + (from.y - home.y) * std::cos(radians);
-                if (ms == 0) distance = initial;
-                current = {home.x + distance * std::sin(radians), home.y + distance * std::cos(radians), home.headingDegrees};
-            } else {
-                const double fraction = std::min(1.0, ms / 1000);
-                current = {from.x + (target.x - from.x) * fraction,
-                           from.y + (target.y + returnOffset - from.y) * fraction, target.headingDegrees};
-            }
-        } else if (coasting) {
-            current.y = 44 + std::min(2.0, static_cast<std::uint32_t>(time - stoppedAt) * 0.01);
-        }
-        return current;
+void testImpossibleReturnTiming() {
+    for (const auto postStopMs : {5000u, 6000u}) {
+        FakeDrive drive;
+        AutonTuneConfig config;
+        config.postStopMs = postStopMs;
+        const auto result = SelfTuningAuton(drive, config).run();
+        assert(result.status == AutonTuneStatus::INVALID_CONFIG);
+        assert(result.trials.empty() && drive.writes == 0);
     }
-    void setTrialGains(const Gains& g, double) override {
-        assert(!active); trialGains = true; gains = g; ++writes;
-    }
-    void restoreGains() override { assert(!active); trialGains = false; gains = {10, 0, 5}; }
-    void moveTo(const DrivePose& t, bool forward, std::uint32_t, double maxSpeed) override {
-        assert(!active && maxSpeed == 60);
-        assert(forward); // Return must never call moveToPoint.
-        from = pose();
-        if (!homeSaved) { home = from; homeSaved = true; }
-        target = t; forwards = forward; start = time;
-        coasting = false; active = true;
-        assert(forward == trialGains); // Return uses the original controller.
-        motions.push_back({from, target, forward, gains}); ++writes;
-    }
-    void driveBackward(double power) override {
-        assert(!active && !trialGains && power >= 1 && power <= 40);
-        from = pose(); target = home; forwards = false; start = time;
-        coasting = false; active = true;
-        motions.push_back({from, target, false, gains}); ++writes;
-    }
-    bool isMoving() override {
-        const unsigned duration = !forwards ? 1000 : profile == OVERSHOOT ? 1400 :
-            profile == OSCILLATE || profile == NOISY || profile == TOO_FAR ? 5000 : 1000;
-        return active && static_cast<std::uint32_t>(time - start) < duration;
-    }
-    void stop() override {
-        if (!active) return;
-        pose(); active = false;
-        coasting = forwards && profile == COAST; stoppedAt = time;
-    }
-    std::uint32_t nowMs() override { return time; }
-    void delayMs(std::uint32_t ms) override {
-        time += ms;
-        if (cancel && (!abortOnReturn || !forwards) && static_cast<std::uint32_t>(time - start) >= 100)
-            cancel->abort();
-        if (disableOnReturn && !forwards) enabled = false;
-    }
-    bool available() override { return enabled; }
-    void reset() {} // Callback no longer repositions: the runner returns automatically.
-    void stopped() { assert(!active && !trialGains); }
-};
+    // A longer coast period is allowed when the return deadline can fit it.
+    FakeDrive drive;
+    AutonTuneConfig config;
+    config.postStopMs = 600;
+    const auto result = SelfTuningAuton(drive, config).run();
+    assert(result.status == AutonTuneStatus::COMPLETE);
+    drive.stopped();
+}
 
-// A queued asynchronous motion need not report running before its task starts.
-struct DelayedStartDrive : FakeDrive {
-    bool pending = false;
-    std::uint32_t queuedAt = 0;
-    unsigned startupDelayMs = 40;
-    void moveTo(const DrivePose& target, bool forwards, std::uint32_t timeout, double speed) override {
-        FakeDrive::moveTo(target, forwards, timeout, speed);
-        active = false;
-        pending = true;
-        queuedAt = time;
-    }
-    void delayMs(std::uint32_t ms) override {
-        FakeDrive::delayMs(ms);
-        if (pending && static_cast<std::uint32_t>(time - queuedAt) >= startupDelayMs) {
-            pending = false;
-            active = true;
-            start = time;
-        }
-    }
-    void stop() override {
-        pending = false;
-        FakeDrive::stop();
-    }
-};
+void testNoAdjustmentAfterTrialLimit() {
+    FakeDrive drive;
+    AutonTuneConfig config;
+    config.maxTrials = 3;
+    unsigned policyCalls = 0;
+    config.adjustmentPolicy = [&](const Gains&, double, double, unsigned index) {
+        ++policyCalls;
+        if (index == 2) throw std::logic_error("No budget to test another candidate");
+        return Gains{4.1, 0, 1.1};
+    };
+    const auto result = SelfTuningAuton(drive, config).run([&](unsigned index, const Gains&) {
+        drive.profile = index == 0 ? FakeDrive::GOOD : FakeDrive::SHORT;
+        return true;
+    });
+    assert(result.status == AutonTuneStatus::TRIAL_LIMIT && result.trials.size() == 3);
+    assert(policyCalls == 1 && result.bestTrial == 0);
+    assert(result.gains.kP == result.trials.front().gains.kP);
+    assert(result.trials.back().returnedToStart);
+    drive.stopped();
+}
 
 int main() {
+    testRepeatedDelayedStartup();
+    testImpossibleReturnTiming();
+    testNoAdjustmentAfterTrialLimit();
     for (auto initialTime : {std::uint32_t{0}, std::uint32_t{0xfffffff0u}}) {
         DelayedStartDrive drive;
         drive.time = initialTime;
@@ -140,8 +85,9 @@ int main() {
         drive.stopped();
     }
     assert(SelfTuningAuton::gainStep(1.1) == 3);
-    assert(SelfTuningAuton::gainStep(6) == 1);
-    assert(SelfTuningAuton::gainStep(12) == 0.1);
+    assert(std::abs(SelfTuningAuton::gainStep(6) - 1.2) < 1e-9);
+    assert(std::abs(SelfTuningAuton::gainStep(12) - 2.4) < 1e-9);
+    assert(SelfTuningAuton::gainStep(100, true) == 2);
     assert(SelfTuningAuton::gainStep(2, true) == 0.1);
     AutonTuneConfig c;
     {
@@ -151,6 +97,7 @@ int main() {
         AutonTuneConfig strict;
         strict.range = 0.1;
         strict.maxTrials = 15;
+        strict.maxKp = 100;
         unsigned count = 0;
         auto limited = AutonTuner(d, strict).run([&](unsigned, const Gains&) {
             ++count; d.reset(); return true;
@@ -210,7 +157,7 @@ int main() {
     for (bool allow : {false, true}) {
         FakeDrive d; d.profile = FakeDrive::SHORT; c = {}; c.allowIntegral = allow;
         auto r = SelfTuningAuton(d, c).run([&](unsigned, const Gains&) { d.reset(); return true; });
-        assert(r.status == AutonTuneStatus::TRIAL_LIMIT);
+        assert(r.status == (allow ? AutonTuneStatus::TRIAL_LIMIT : AutonTuneStatus::GAIN_LIMIT));
         bool usedIntegral = false;
         for (const auto& trial : r.trials) usedIntegral |= trial.gains.kI > 0;
         assert(usedIntegral == allow);
@@ -267,12 +214,19 @@ int main() {
         FakeDrive d; d.profile = FakeDrive::SHORT; d.shortDistance = 20;
         c = {}; c.maxTrials = c.confirmationTrials = 2;
         auto r = SelfTuningAuton(d, c).run();
-        assert(r.status == AutonTuneStatus::TRIAL_LIMIT && d.motions.size() == 4);
-        for (unsigned i = 0; i < d.motions.size(); i += 2) {
-            assert(d.motions[i].forwards && !d.motions[i + 1].forwards);
-            assert(std::abs(d.motions[i].from.y - 20) <= 0.5 && d.motions[i].target.y == 44);
-            assert(d.motions[i + 1].from.y == 40 && d.motions[i + 1].target.y == 20);
+        assert(r.status == AutonTuneStatus::TRIAL_LIMIT && r.trials.size() == 2);
+        unsigned forwards = 0;
+        unsigned returns = 0;
+        for (const auto& motion : d.motions) {
+            if (motion.forwards) {
+                ++forwards;
+                assert(std::abs(motion.from.y - 20) <= 0.5 && motion.target.y == 44);
+            } else {
+                ++returns;
+                assert(motion.target.y == 20); // Creeps still use the fixed origin.
+            }
         }
+        assert(forwards == 2 && returns > 2);
         for (const auto& trial : r.trials) assert(trial.distanceInches == 20 && trial.returnedToStart);
         assert(std::abs(d.pose().y - 20) <= 0.5); d.stopped();
     }
@@ -286,8 +240,8 @@ int main() {
         FakeDrive d; d.returnOffset = -2;
         c = {}; c.returnToleranceInches = 0.01;
         auto r = SelfTuningAuton(d, c).run();
-        assert(r.status == AutonTuneStatus::RETURN_FAILED && r.trials.size() == 1);
-        assert(d.pose().y < 20); // Missed the narrow range: stop after crossing it.
+        assert(r.status == AutonTuneStatus::COMPLETE);
+        assert(std::abs(d.pose().y - 20) <= c.returnToleranceInches); // Predictive stop/creep reaches the narrow window.
         d.stopped();
     }
     for (double power : {0.0, -20.0, 41.0, std::numeric_limits<double>::quiet_NaN()}) {

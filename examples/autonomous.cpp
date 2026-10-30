@@ -5,7 +5,7 @@
 void tuneAngularExample(lemlib::Chassis& chassis) {
     guantune::AutonTuneConfig config;
     config.distanceInches = 90; // Angular mode uses degrees for distance fields.
-    config.testDistances = {90, 180};
+    config.testDistances = {90, 170};
     config.maxTravelInches = 210;
     config.maxSensorSpeed = 400;
     config.trialTimeoutMs = 15000;

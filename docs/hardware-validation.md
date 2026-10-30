@@ -16,7 +16,7 @@ results as repeatable. Compare gains and independently measured final error.
 - Brake mode and calibration/readiness method:
 - Battery charge, initial voltage and temperature:
 - Configuration, distances/angles and independent sensor method:
-- Per trial: target, P/I/D, starting/minimum voltage, measured/independent
+- Per trial: target, P/I/D, measured/independent
   displacement, error, overshoot, crossings, elapsed time, settlement and return:
 - Final status, accepted gains (only COMPLETE), actual final position:
 - Failures, manual interventions and differences from previous sessions:

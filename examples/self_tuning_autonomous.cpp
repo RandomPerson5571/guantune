@@ -21,11 +21,10 @@ autotune::AutonTuneResult tuneAutonomous(lemlib::Chassis& chassis) {
         return true;
     });
     for (const auto& trial : result.trials) {
-        std::printf("P=%.3f I=%.4f D=%.3f distance=%.2f error=%.2f overshoot=%.2f crossings=%u settled=%d timeout=%d returned=%d battery_start=%.0f battery_min=%.0f\n",
+        std::printf("P=%.3f I=%.4f D=%.3f distance=%.2f error=%.2f overshoot=%.2f crossings=%u settled=%d timeout=%d returned=%d\n",
                     trial.gains.kP, trial.gains.kI, trial.gains.kD, trial.distanceInches,
                     trial.finalErrorInches, trial.overshootInches, trial.crossings,
-                    trial.settled, trial.timedOut, trial.returnedToStart,
-                    trial.batteryStartMillivolts, trial.batteryMinimumMillivolts);
+                    trial.settled, trial.timedOut, trial.returnedToStart);
     }
     std::printf("Status=%d, candidate P=%.3f I=%.4f D=%.3f\n",
                 static_cast<int>(result.status), result.gains.kP, result.gains.kI, result.gains.kD);

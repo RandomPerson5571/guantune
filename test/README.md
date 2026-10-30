@@ -5,18 +5,27 @@ and CXXSTD=c++17 or c++20. ASan and UBSan are enabled; warnings are errors.
 CI runs all four compiler/standard combinations.
 
 self_tuning_auton_test.cpp covers scripted decision/return/fault/abort/time-wrap
-cases. quality_test.cpp uses an independent first-order motor model with friction,
+cases, including queued startup after a residual return offset, impossible
+return deadlines, and trial-budget exhaustion without an unused policy call.
+quality_test.cpp uses an independent first-order motor model with friction,
 output saturation, brake response and measurement noise. Twelve fixed random seeds
-must converge and confirm 6/24/72-inch targets. A separate run tests 90/180-degree
+must converge and confirm 6/24/72-inch targets. A separate run tests 90/170-degree
 turns. Tests also cover exception restoration of const PIDs, failed preflight,
 independent measurement, bounded policies, best-trial fallback and persistence.
 Return regressions cover invalid independent readings in both modes, disagreement
 before reversing, frozen odometry, signed origin-relative measurements and angular
-x/y jumps. Target-list overrides, float parameter bounds and schema 2 windup
-exports are checked too.
-Telemetry regressions cover disabled overhead, phases and sampling intervals,
-signed velocity, angular/lateral returns, time wrap, bounded recording, command
-probes, invalid readings, failed-session CSV export and cleanup after callbacks throw.
+x/y jumps and heading jumps at the trial/return boundary. Target-list overrides,
+float parameter bounds and schema 2 windup exports are checked too.
+`angular_heading_test.cpp` exercises complete tuning/return sessions starting
+at 720, -260 and other wrapped/continuous headings, asserting that every angular
+command is in [0, 360). `angle_test.cpp` also checks float rounding at 360.
+Shared simulated drives live in `test/support/`.
+`pasted_behavior_test.cpp` covers latched/concurrent aborts, battery sag, frozen
+clocks in both phases, idle-wait deadlines/cancellation and cleanup exceptions.
+`gain_search_test.cpp` covers proportional/fine steps, actual policy history,
+D-cap P backoff, bounded same-gain retries and relative trial scoring.
+`telemetry_test.cpp` covers memory limits, every-fifth-record motor I/O, phases,
+commands, signed velocity, clock wrap, invalid readings, exception cleanup and CSV.
 prepare_build_test.py checks actual jsonpickle metadata shape, dependency version
 recording, adapter packaging and existing-destination protection.
 

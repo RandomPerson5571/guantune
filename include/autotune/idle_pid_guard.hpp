@@ -8,7 +8,7 @@ namespace autotune {
 // The owner grants exclusive access. stop must cancel and join all owned motion
 // and must not throw. Copying the PID must not throw after its lifetime ends.
 template <typename PID> class IdlePidGuard {
-public:
+  public:
     IdlePidGuard(PID& pid, std::function<void()> stop)
         : pid_(pid), stop_(std::move(stop)), original_(pid) {
         static_assert(std::is_nothrow_copy_constructible<PID>::value,
@@ -23,12 +23,14 @@ public:
         restored_ = false;
     }
     void restore() {
-        if (restored_) return;
+        if (restored_)
+            return;
         stop_();
         replace(original_);
         restored_ = true;
     }
-private:
+
+  private:
     void replace(const PID& value) noexcept {
         std::destroy_at(std::addressof(pid_));
         ::new (static_cast<void*>(std::addressof(pid_))) PID(value);

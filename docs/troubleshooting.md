@@ -2,24 +2,27 @@
 
 ## No movement from opcontrol
 
-Enabled driver control is supported. Run tuning synchronously from a button
-branch and pause all other motor-writing tasks for its duration; see
+Enabled driver control is supported. Run tuning synchronously at the start of
+opcontrol and pause all other motor-writing tasks for its duration; see
 [`examples/opcontrol.cpp`](../examples/opcontrol.cpp). Do not launch tuning in a
 background task while the joystick loop continues sending zero commands.
 
 Print `guantune::statusName(result.status)` immediately after the call, including
-failed runs. `DRIVE_UNAVAILABLE` means the robot is disabled, another motion/run
-is active, or no motion was observed within the 250 ms startup window.
+failed runs. `ALREADY_RUNNING` means another call owns this tuner.
+`DRIVE_UNAVAILABLE` means the robot is disabled, another motion is active, an
+idle wait expired, or no motion was observed within the 250 ms startup window.
 `INVALID_CONFIG` means configuration was rejected before movement: for example,
-`maxOutput` below 60, a target at/above `maxTravelInches`, or insufficient trials
+`maxOutput` below 60, insufficient overshoot headroom, a 180-degree angular
+target, invalid telemetry limits/ports, or insufficient trials
 for confirmation. `NOT_CALIBRATED` means the readiness callback returned false;
-`LOW_BATTERY` and `SENSOR_FAULT` require inspecting voltage/odometry readings.
+`SENSOR_FAULT` requires inspecting odometry and independent sensor readings.
 
 The runner now waits for asynchronous motion startup instead of cancelling on
 the first idle poll. A delayed-start regression reproduced that premature
 cancellation; this does not establish the cause of every hardware no-movement
-report. If no starting message appears in the example, check the button branch
-and installed program. If the call never returns, capture the last message and
+report. If no starting message appears in the example, check that opcontrol
+calls the tuning function and that the correct program is installed. If the
+call never returns, capture the last message and
 check the motion task/odometry rather than treating a compile/link pass as a
 successful robot test.
 
@@ -56,14 +59,21 @@ running. The tuner never changes brake mode. Hold mode may create different
 settling behavior; compare it explicitly across sessions. Verify real stopping
 behavior instead of assuming zero output stops instantly.
 
-## LOW_BATTERY, NOT_CALIBRATED and measurement faults
+## LOW_BATTERY and battery readings
 
-Charge/change the battery and inspect trial start/minimum voltages. Set the
-readiness callback from completed calibration and sensor health, not a timer.
+Resting checks are strict. During movement, a low reading must persist for
+100 ms, unless it is below 85% of minimumBatteryMillivolts. Inspect recorded
+starting/minimum voltage, battery condition, connections and load. Invalid
+voltage readings produce SENSOR_FAULT; brief tolerated sag can still appear
+as the recorded minimum in an accepted trial.
+
+## NOT_CALIBRATED and measurement faults
+
+Set the readiness callback from completed calibration and sensor health, not a timer.
 Check units and wall geometry for independent sensors; invalid readings should
 return NaN. MEASUREMENT_DISAGREEMENT stops without a return because ground travel
-is uncertain. SENSOR_FAULT includes nonfinite pose, bad battery and implausible
-speed. Do not loosen limits until the sensor fault is understood.
+is uncertain. SENSOR_FAULT includes nonfinite pose, implausible speed, invalid battery reads,
+and a clock that remains unchanged for 1000 polls. Do not loosen limits until the sensor fault is understood.
 
 ## Build errors or unfinished interfaces
 

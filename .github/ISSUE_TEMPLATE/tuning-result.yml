@@ -19,6 +19,6 @@ body:
     id: sessions
     attributes:
       label: Session evidence
-      description: Dates, starting/lowest voltage per trial, targets, gains, errors, overshoot, crossings, status and return error. Include several sessions and failed trials.
+      description: Dates, targets, gains, errors, overshoot, crossings, status and return error. Include several sessions and failed trials.
     validations:
       required: true

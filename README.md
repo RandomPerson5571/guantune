@@ -2,15 +2,16 @@
 
 A PROS/LemLib PID tuner that runs measured trials, adjusts gains, and returns to
 the saved starting pose between attempts. It supports lateral moves and angular
-turns, multiple target distances, battery logging and independent measurement checks.
-Optional bounded telemetry records tuning/return kinematics and PROS motor
-voltage, current and temperature for CSV export; see the tuning reference for
-command-probe requirements and units.
+turns, multiple target distances, battery protection, and independent measurement
+checks. Optional bounded telemetry records motion and motor readings for CSV
+export without performing file writes in the control loop.
 
 **Status:** sanitizer host tests, seeded physics tests, and a local ARM library/
 template build, template installation, and monolithic/hot-cold consumer links
-pass locally with PROS 4.2.2 / ARM GCC 15.2.1 / LemLib 0.5.6.
-Remote CI runs and robot sessions still require validation.
+pass locally with PROS 4.2.2 / ARM GCC 14.3.1 / LemLib 0.5.6 for the
+current replacement integration.
+The current integration has local validation; remote CI for these uncommitted
+changes and physical robot sessions remain pending.
 The simulation is a limited motor model, not evidence of hardware convergence.
 
 ## Install
@@ -30,7 +31,7 @@ After successful calibration, with exclusive drivetrain access and a clear path:
 #include "autotune/lemlib_tuning_drive.hpp"
 #include "autotune/output.hpp"
 
-// Inside autonomous(), or a blocking opcontrol() button branch:
+// At the start of autonomous() or opcontrol(), before joystick writes:
 auto result = guantune::tuneLateral(chassis);
 std::printf("Guantune: %s\n", guantune::statusName(result.status));
 if (result.status == guantune::AutonTuneStatus::COMPLETE) {
@@ -40,9 +41,11 @@ if (result.status == guantune::AutonTuneStatus::COMPLETE) {
 }
 ```
 
-For driver control, use the [opcontrol example](examples/opcontrol.cpp): pressing
-X runs tuning synchronously and pauses joystick writes until it returns. Other
-tasks must also yield drivetrain ownership. Enabled driver control is supported;
+For driver control, use the [opcontrol example](examples/opcontrol.cpp): tuning
+starts automatically on entry, with no controller button presses, and runs
+synchronously before joystick writes begin. It returns on completion, the
+configured trial limit (20 by default), or a fault; it does not restart itself.
+Other tasks must also yield drivetrain ownership. Enabled driver control is supported;
 the robot does not need to be in autonomous mode. Print the returned status even
 when tuning fails, so an early exit is visible.
 
@@ -63,6 +66,16 @@ flowchart LR
     C -->|fault| H[Stop and restore; no automatic return]
     E -->|failure| H
 ```
+
+## Reading the implementation
+
+Start with the [code map](docs/architecture.md) for the module boundaries,
+session sequence, units, and cleanup rules. See the
+[replacement integration notes](docs/pasted-implementation.md) for the new gain
+schedule, abort behavior, return handling, and telemetry limits. Existing callers
+can include `autotune/self_tuning_auton.hpp` or `autotune/api.hpp`. When copying the
+library, copy all of `include/autotune/` and `src/autotune/`; the core now spans
+several source files.
 
 ## Validation and help
 

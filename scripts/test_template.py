@@ -63,6 +63,12 @@ void autonomous() {
     (void)guantune::saveTelemetryCsv(result, "/usd/guantune-telemetry.csv");
 }
 ''')
+    # Compile every public example against the installed headers, including
+    # automatic opcontrol, angular targets and optional telemetry. Their helper
+    # functions are never called by the inert smoke program.
+    examples = Path(__file__).resolve().parents[1] / 'examples'
+    for example in sorted(examples.glob('*.cpp')):
+        shutil.copy2(example, destination / 'src' / ('guantune_example_' + example.name))
     run('make', 'all', 'USE_PACKAGE=0',
         'EXTRA_CXXFLAGS=-Iinclude -DGUANTUNE_ALLOW_UNTESTED_LEMLIB')
     if not (destination / 'bin/monolith.bin').is_file():

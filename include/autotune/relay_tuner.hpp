@@ -6,13 +6,13 @@ namespace autotune {
 
 // Hardware-free API proposal. Unimplemented methods are deleted for compile-time diagnostics.
 class RelayTuner {
-public:
+  public:
     explicit RelayTuner(Config config) = delete;
     void reset() = delete;
     Step update(const Sample& sample) = delete;
     Result result() const = delete;
 
-private:
+  private:
     Config config_;
     // TODO: Add relay state and cycle measurements with the core implementation.
 };

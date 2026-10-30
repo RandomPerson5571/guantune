@@ -14,6 +14,6 @@ the latest-stable CI job. Never install candidate gains while motion owns a PID.
 Cleanup callbacks must not throw. Callbacks must not start unrelated motions.
 
 Hardware results belong in docs/hardware-validation.md with the full environment,
-all failed attempts and trial battery readings. Remove identifying information
-from attachments. Use the tuning-result issue template. Do not label a version
+all failed attempts, recorded trial voltages and battery conditions. Remove identifying
+information from attachments. Use the tuning-result issue template. Do not label a version
 validated until its linked CI evidence and physical test evidence exist.
