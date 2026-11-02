@@ -61,7 +61,7 @@ automatically reversing.
 ## Gain adjustments
 
 - Start from `startingGains` (default P=1.1, I=0, D=1.1). Seeds must use the
-  exact LemLib control law and units. SI cascade gains are not interchangeable.
+  exact LemLib control law and units. Offline cascade gains are not interchangeable, even with inch/degree inputs.
   Nonzero seed I requires `allowIntegral`. Invalid seeds are rejected before motion.
 - Increase D for overshoot beyond the configured forward range, or at least
   three target crossings. Crossings use a default +/-0.5-inch deadband.

@@ -24,7 +24,7 @@ struct AutonTuneConfig {
     double maxHeadingErrorDegrees = 20;
     double maxSensorSpeed = 120; // inches/second
 
-    // Seed in LemLib PID units, NOT SI cascade gains from a different controller.
+    // Seed in LemLib PID units, NOT offline cascade gains from a different controller.
     // Refinement never applies these on failure; callers still inspect succeeded().
     Gains startingGains{1.1, 0, 1.1};
     // Per-axis P/D step envelope: max(0.1, current gain * ratio).
