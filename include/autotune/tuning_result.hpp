@@ -19,9 +19,7 @@ enum class AutonTuneStatus {
     RETURN_FAILED,
     NOT_CALIBRATED,
     MEASUREMENT_DISAGREEMENT,
-    UNSUPPORTED_MODE,
-    LOW_BATTERY,
-    ALREADY_RUNNING
+    ALREADY_RUNNING = 12
 };
 
 inline const char* statusName(AutonTuneStatus status) {
@@ -48,10 +46,6 @@ inline const char* statusName(AutonTuneStatus status) {
         return "NOT_CALIBRATED";
     case AutonTuneStatus::MEASUREMENT_DISAGREEMENT:
         return "MEASUREMENT_DISAGREEMENT";
-    case AutonTuneStatus::UNSUPPORTED_MODE:
-        return "UNSUPPORTED_MODE";
-    case AutonTuneStatus::LOW_BATTERY:
-        return "LOW_BATTERY";
     case AutonTuneStatus::ALREADY_RUNNING:
         return "ALREADY_RUNNING";
     }
@@ -62,8 +56,6 @@ inline const char* statusName(AutonTuneStatus status) {
 struct TrialReport {
     Gains gains{1.1, 0, 1.1};
     double target = 0;
-    double batteryStartMillivolts = 0;
-    double batteryMinimumMillivolts = 0;
     std::optional<double> independentDistance;
     double distanceInches = 0;  // Projected inches, or unwrapped degrees in angular mode.
     double overshootInches = 0; // Peak displacement beyond the target.
@@ -77,8 +69,12 @@ struct TrialReport {
 };
 
 // A failed session may contain useful measurements, but its gains are not
-// accepted for persistence or automatic application.
-struct AutonTuneResult {
+// accepted for application. The caller decides how to display or transmit them.
+class AutonTuneResult {
+  public:
+    // Only confirmed trials and a successful final return constitute success.
+    bool succeeded() const { return status == AutonTuneStatus::COMPLETE; }
+
     AutonTuneStatus status = AutonTuneStatus::INVALID_CONFIG;
     // Confirmed on COMPLETE; best safely returned candidate on every failure.
     Gains gains{1.1, 0, 1.1};

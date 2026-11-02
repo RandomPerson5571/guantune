@@ -147,18 +147,10 @@ the best measured candidate for diagnostics. Do not increase the trial budget.
 
 ## Reproduce the observations
 
-The accompanying [reproduce.py](/Users/ethanguan/Documents/coding-workspace/VexRobotics/libraries/guantune/docs/audits/2026-10-29/reproduce.py)
-extracts the existing simulated drive fixtures, compiles the current tuning
-core into temporary executables, and prints the observations above:
-
-```sh
-cd libraries/guantune
-python3 docs/audits/2026-10-29/reproduce.py
-CXXSTD=c++20 python3 docs/audits/2026-10-29/reproduce.py
-```
-
-The script prints behavior rather than asserting these defects must remain;
-rerun it after fixes and compare the outputs with each finding's expected behavior.
+The original reproduction script and simulated-drive fixtures belong to the
+pre-wrapper implementation and are available in its Git history. They were
+removed after the generic drive API was retired. The current wrapper's checks
+are documented in `test/README.md`; they do not reproduce this historical audit.
 
 ## Coverage and validation gaps
 

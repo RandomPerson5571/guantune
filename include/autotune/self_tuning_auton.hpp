@@ -1,7 +1,7 @@
 #pragma once
 
 #include "autotune/tuning_config.hpp"
-#include "autotune/tuning_drive.hpp"
+#include "autotune/lemlib_tuning_drive.hpp"
 #include "autotune/tuning_result.hpp"
 #include <atomic>
 #include <functional>
@@ -20,17 +20,15 @@ class SelfTuningAuton {
     // here. Trial motion and the return to the saved origin are automatic.
     using BeforeTrial = std::function<bool(unsigned, const Gains&)>;
 
-    explicit SelfTuningAuton(TuningDrive& drive, AutonTuneConfig config = {});
+    explicit SelfTuningAuton(lemlib::Chassis& chassis, AutonTuneConfig config = {},
+                             std::function<bool()> ready = [] { return true; });
     AutonTuneResult run(const BeforeTrial& beforeTrial = {});
     // Latched: cancels the active run, or exactly the next run when called idle.
     // The owning run consumes the request on exit; rejected concurrent calls do not.
     void abort();
 
-    // Coarse: 3 below 6, then 20% (at least 1). Fine: 2% (at least 0.1).
-    static double gainStep(double gain, bool fine = false);
-
   private:
-    TuningDrive& drive_;
+    LemLibTuningDrive drive_;
     AutonTuneConfig config_;
     std::atomic<bool> aborted_{false};
     std::atomic_flag running_ = ATOMIC_FLAG_INIT;

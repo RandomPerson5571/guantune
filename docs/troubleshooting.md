@@ -59,25 +59,18 @@ running. The tuner never changes brake mode. Hold mode may create different
 settling behavior; compare it explicitly across sessions. Verify real stopping
 behavior instead of assuming zero output stops instantly.
 
-## LOW_BATTERY and battery readings
-
-Resting checks are strict. During movement, a low reading must persist for
-100 ms, unless it is below 85% of minimumBatteryMillivolts. Inspect recorded
-starting/minimum voltage, battery condition, connections and load. Invalid
-voltage readings produce SENSOR_FAULT; brief tolerated sag can still appear
-as the recorded minimum in an accepted trial.
-
 ## NOT_CALIBRATED and measurement faults
 
 Set the readiness callback from completed calibration and sensor health, not a timer.
 Check units and wall geometry for independent sensors; invalid readings should
 return NaN. MEASUREMENT_DISAGREEMENT stops without a return because ground travel
-is uncertain. SENSOR_FAULT includes nonfinite pose, implausible speed, invalid battery reads,
+is uncertain. SENSOR_FAULT includes nonfinite pose, implausible speed,
 and a clock that remains unchanged for 1000 polls. Do not loosen limits until the sensor fault is understood.
 
 ## Build errors or unfinished interfaces
 
 Use the supported dependency pair and compile the actual adapter, not just the
 host core. See compatibility.md for version-guard overrides used only in audits.
-RelayTuner/Tuner and relay Result::print are deliberately deleted until implemented;
-use SelfTuningAuton, tuneLateral or tuneAngular instead.
+The generic TuningDrive and legacy relay/asynchronous APIs have been removed.
+Pass your existing `lemlib::Chassis&` to SelfTuningAuton, tuneLateral or tuneAngular.
+Copy the entire `include/autotune/` tree, including `detail/`, when installing headers.

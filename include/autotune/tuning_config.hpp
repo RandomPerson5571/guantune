@@ -7,13 +7,14 @@
 
 namespace autotune {
 
-// Field names retain the original API. In angular mode, target/error/speed
-// values use degrees and degrees/second despite the legacy "Inches" names.
+// Targets have separate lateral and angular fields. In angular mode, legacy
+// error/speed limits use degrees and degrees/second despite "Inches" names.
 // maxCrossTrackInches and maxTranslationalSensorSpeed always describe translation.
 struct AutonTuneConfig {
     // Acceptable distance error in inches. When set, overrides toleranceInches.
     std::optional<double> range = std::nullopt;
-    double distanceInches = 24;
+    double distanceInches = 24; // Lateral target only.
+    double angleDegrees = 24;   // Angular target only.
     double maxOutput = 60;
     double toleranceInches = 0.5;
     double maxSettledSpeed = 1; // inches/second
@@ -22,6 +23,13 @@ struct AutonTuneConfig {
     double maxCrossTrackInches = 4;
     double maxHeadingErrorDegrees = 20;
     double maxSensorSpeed = 120; // inches/second
+
+    // Seed in LemLib PID units, NOT SI cascade gains from a different controller.
+    // Refinement never applies these on failure; callers still inspect succeeded().
+    Gains startingGains{1.1, 0, 1.1};
+    // Per-axis P/D step envelope: max(0.1, current gain * ratio).
+    // Custom policies must obey the same envelope; Ki changes are <= kiStep.
+    double maxGainChangeRatio = 0.25;
 
     // Gain bounds and the deterministic search schedule.
     double integralWindupRange = 3;
@@ -48,8 +56,8 @@ struct AutonTuneConfig {
     // Effective targets and optional callbacks. Callbacks must be prompt;
     // none may start another motion while the tuner owns the drivetrain.
     Mode mode = Mode::LATERAL;
-    std::vector<double> testDistances = {}; // Empty uses distanceInches. Validate every target.
-    double minimumBatteryMillivolts = 7000; // Strict at rest; brief load sag is tolerated.
+    std::vector<double> testDistances = {}; // Lateral targets; empty uses distanceInches.
+    std::vector<double> testAngles = {};    // Angular targets; empty uses angleDegrees.
     std::function<bool()> requireConfirmation = {}; // Once before any movement; false aborts.
     // Independent signed displacement from session origin, in mode units.
     std::function<double()> independentDisplacement = {};

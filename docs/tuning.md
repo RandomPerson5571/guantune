@@ -9,7 +9,8 @@
 - `maxTrials`: maximum forward trials, including confirmation trials; default
   20. It must be at least `confirmationTrials`, which defaults to two. Backward
   returns do not consume additional trials.
-- `distanceInches`: forward target distance; default 24.
+- `distanceInches`: lateral target in inches; default 24.
+- `angleDegrees`: angular target in degrees; default 24. Only the current mode's target is used.
 - `returnPower`: fixed backward command magnitude, 1–40; default 20. This is
   motor power, not a speed in inches per second.
 - `returnToleranceInches`: radius around the saved start required for a return;
@@ -59,18 +60,28 @@ automatically reversing.
 
 ## Gain adjustments
 
-- Start each session at P=1.1, I=0, D=1.1.
+- Start from `startingGains` (default P=1.1, I=0, D=1.1). Seeds must use the
+  exact LemLib control law and units. SI cascade gains are not interchangeable.
+  Nonzero seed I requires `allowIntegral`. Invalid seeds are rejected before motion.
 - Increase D for overshoot beyond the configured forward range, or at least
   three target crossings. Crossings use a default +/-0.5-inch deadband.
 - Increase P for stationary undershoot without excessive overshoot or oscillation.
 - Coarse P/D steps are 3 below a gain of 6; above that they are 20% of the
   current gain, with a minimum step of 1. After a reversal, fine steps are 2%
   of the current gain, with a minimum step of 0.1.
-- If D is capped and overshoot remains, reduce P toward the starting value.
+- If D is capped and overshoot remains, reduce P toward zero.
 - A trial within tolerance that is not settled retries the same gains up to
   five times. A sixth such failure stops with `TRIAL_LIMIT`. These retries
   consume the ordinary trial budget; the budget is never increased.
+- Each P/D change is additionally bounded to `max(0.1, currentGain *
+  maxGainChangeRatio)`, with a default ratio of 0.25 (valid range: (0, 1]).
+  Custom policies exceeding that envelope or changing I by more than `kiStep`
+  stop with `GAIN_LIMIT`; they cannot enable integral without opt-in.
+- A successful target clears the previous failed-target bisection bracket.
 - Require two consecutive successful trials by default before accepting gains.
+  Each must be settled, not timed out, inside final error/speed limits, and
+  inside the overshoot/crossing limits. Nonfinite or negative magnitude
+  measurements fail with `SENSOR_FAULT` and are excluded from recommendations.
 - Keep I at zero unless `allowIntegral` is enabled. Even then, require eight P/D
   adjustments, three consecutive undershoots, P >= min(12, maxKp), no meaningful crossings,
   and a stationary final error within the 3-inch integral range. Increase I by
@@ -161,10 +172,10 @@ for confirmationTrials complete cycles. Failure resets confirmations and starts
 the next candidate at the first target. maxTrials counts all individual targets;
 allow at least targets.size() * confirmationTrials plus search attempts.
 
-For turns use tuneAngular(chassis, config), distanceInches=90,
-testDistances={90,170}, maxTravelInches=210, maxSensorSpeed=400 and generous
-trial/return timeouts. Angular distance, tolerance, deadband, travel and speed
-settings use degrees and degrees/second despite their legacy inch field names.
+For turns use tuneAngular(chassis, config), angleDegrees=90,
+testAngles={90,170}, maxTravelInches=210, maxSensorSpeed=400 and generous
+trial/return timeouts. Angular targets use `angleDegrees` or `testAngles`. Tolerance, deadband, travel
+and speed settings still use degrees and degrees/second despite their legacy inch field names.
 Absolute headings are normalized to [0, 360) degrees before the core requests
 an angular motion and again at LemLib's float precision. Thus 720 becomes 0,
 -260 becomes 100, and a rounded 360 becomes 0. Negative or multi-revolution
@@ -177,8 +188,10 @@ lateral independent-distance callback for angular trials.
 `maxSensorSpeed` is the angular jump limit in degrees/second;
 `maxTranslationalSensorSpeed` separately bounds x/y jumps in inches/second
 (default 120), during both trials and returns. Lateral tests use `maxSensorSpeed`
-for translation as before. Explicit `testDistances` replace `distanceInches`;
-only the targets actually used are validated against travel and tolerance limits.
+for translation as before. Explicit `testDistances` replace `distanceInches` in lateral mode; `testAngles`
+replace `angleDegrees` in angular mode. Fields for the other mode are ignored.
+Migrate angular callers from `distanceInches`/`testDistances` to
+`angleDegrees`/`testAngles`; only effective targets are validated.
 
 ## Search policy
 
@@ -187,7 +200,7 @@ ranked by (absolute final error + peak overshoot + crossings * tolerance) / targ
 `bestTrial` identifies it. Normalization makes different target lengths comparable.
 This is a diagnostic fallback, not accepted gains; a candidate's success on one
 target does not imply success on every target. Only COMPLETE enables conversion
-and persistence. The default policy retains the original deterministic schedule.
+and conversion to LemLib settings. The default policy retains the original deterministic schedule.
 
 bisectOnReversal optionally tests the midpoint of the two preceding candidates
 when the adjustment direction reverses between undershoot and overshoot. This is
@@ -228,38 +241,42 @@ The robot stops without reversing on these faults. Trials retain the last
 independent reading. Odometry still determines the normal return; independent
 measurement is a fault check, not sensor fusion.
 
-## Saving results
+## Returned results
 
-Include autotune/output.hpp. `saveAcceptedGains(result, "/usd/guantune.json")`
-writes schema 2 JSON containing mode, accepted gains, and `windupRange` to the SD
-card via a temporary file and rename. External readers of schema 1 must be updated
-to accept schema 2 and apply its windup range; schema 1 did not record that value.
-Check its boolean result: an absent card, full filesystem or failed rename returns
-false. A failed run does not overwrite accepted gains. Use one writer per path;
-power-loss durability depends on the filesystem. `controllerSettingsSnippet(result)`
-returns a copy-pasteable ControllerSettings copy and gain assignments preserving
-your baseSettings exit thresholds and slew, while applying the tested gains and
-windup range. It is empty on failed results or unrepresentable PID parameters.
+`tuneLateral`, `tuneAngular` and `SelfTuningAuton::run()` return an owning
+`AutonTuneResult` class. It contains `gains.kP`, `gains.kI`, `gains.kD`,
+`integralWindupRange`, status, trial reports and optional in-memory telemetry.
+The values remain available after the tuner is destroyed.
+
+```cpp
+auto result = guantune::tuneLateral(chassis, config);
+if (result.succeeded()) {
+    const auto& pid = result.gains;
+    // Your code can display pid.kP/kI/kD and result.integralWindupRange
+    // on a screen or send them to a laptop using your telemetry transport.
+}
+```
+
+`result.succeeded()` means `status == AutonTuneStatus::COMPLETE`. Failed sessions
+retain diagnostic gains and trial reports; those gains have not been accepted.
+`toLemLib(result, baseSettings)` returns optional settings, preserving the caller's
+exit/slew settings. It does not install them or produce output.
+
+Guantune provides no JSON, CSV, SD-card persistence, formatted settings snippets,
+console printing or telemetry transport. The caller owns presentation and
+transmission. The former `output.hpp` helpers have been removed; consume the
+returned result object instead.
 
 The `guantune` namespace alias is available wherever types.hpp is included.
-The older relay constructors, conversion and Result::print are deleted, yielding
-compile-time diagnostics instead of unresolved symbols. They are not part of the
-implemented autonomous tuning API.
-
-## Battery monitoring
-
-`minimumBatteryMillivolts` defaults to 7000. Before a session or trial moves,
-readings below the threshold return `LOW_BATTERY` immediately. During trial,
-coast, and return sampling, a brief dip is tolerated: stop after 100 ms of
-consecutive low readings, or immediately below 85% of the threshold. A healthy
-reading resets that timer. NaN, infinity, and nonpositive readings produce
-`SENSOR_FAULT`. `TrialReport` retains starting and minimum forward-trial voltage.
-Pick a threshold suitable for your robot; these checks do not estimate charge.
+`SelfTuningAuton` accepts `lemlib::Chassis&` directly, with optional configuration
+and readiness callback. Position readings come from that chassis's `getPose()`;
+Guantune never owns odometry.
 
 ## Optional telemetry
 
 Set `enableTelemetry=true` to collect phase, target, position, signed velocity,
-battery voltage and optional motor readings in `result.telemetry`. Recording
+battery voltage and optional motor readings in `result.telemetry`. Battery readings
+are passive telemetry and never block or abort tuning. Recording
 is disabled by default. `telemetryPeriodMs` defaults to 20 and must be at least
 10 ms. New trials and phase transitions are recorded even within that period.
 `maxTelemetrySamples` defaults to 4096 and must be in [1, 100000] when recording
@@ -281,9 +298,24 @@ is known. The nominal `12000 * power / 127` return voltages are labeled with
 voltage commands. Signed velocity uses inches/s laterally or degrees/s angularly;
 position is displacement from the fixed origin. No elapsed time means no velocity.
 
-Call `saveTelemetryCsv(result, "/usd/guantune-telemetry.csv")` after the run to
-avoid SD writes in the control loop. Failed sessions can also be exported. CSV
-has one row per motor on motor-sampled records and one chassis-only row otherwise;
-absent values become empty fields. No samples returns false without opening a
-file. Both JSON and CSV exports use temporary-file/rename and report write failure.
-See `examples/telemetry_autonomous.cpp` for the recording setup.
+The returned `result.telemetry` vector holds the samples in memory, including
+samples collected before a failed session. The caller may inspect them, render
+them on screen, or transmit them after `run()` returns. No transport or file
+writer runs inside the tuner. See `examples/telemetry_autonomous.cpp`.
+
+## Refining an existing LemLib seed
+
+```cpp
+autotune::AutonTuneConfig config;
+config.startingGains = {4.0, 0.0, 8.0}; // Existing LemLib gains, not SI cascade gains.
+config.maxGainChangeRatio = 0.15;     // Smaller bounded refinement steps.
+config.testDistances = {12, 24};
+config.maxTrials = 30;
+autotune::SelfTuningAuton tuner(chassis, config);
+const auto result = tuner.run();
+// Apply only after result.succeeded(); failure recommendations are diagnostic.
+```
+
+The search is a bounded heuristic, not a globally optimal hardware optimizer.
+All confirmations and the final return must succeed. Trial budgets include
+retries and confirmations, so a smaller step envelope may require more trials.

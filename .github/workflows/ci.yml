@@ -60,7 +60,7 @@ jobs:
       - name: Install PROS CLI
         run: pip install pros-cli==3.5.6 "setuptools<81"
       - name: Test template optimization with ARM tools
-        run: python3 -m unittest discover -s test -p template_optimization_test.py
+        run: python3 -m unittest discover -s test/packaging -p template_optimization_test.py
       - name: Prepare build project
         env:
           KERNEL_VERSION: ${{ matrix.kernel }}
@@ -81,7 +81,7 @@ jobs:
           if [ "${{ matrix.name }}" = latest ]; then flags+=(-DGUANTUNE_ALLOW_UNTESTED_LEMLIB); fi
           c++ -std=c++20 -fsanitize=address,undefined -fno-sanitize-recover=all \
             -Iinclude -isystem "$RUNNER_TEMP/guantune-build/include" "${flags[@]}" \
-            test/lemlib_settings_check.cpp -o "$RUNNER_TEMP/lemlib-settings-check"
+            test/compatibility/lemlib_settings_check.cpp -o "$RUNNER_TEMP/lemlib-settings-check"
           "$RUNNER_TEMP/lemlib-settings-check"
       - name: Install template and link consumer
         run: python3 scripts/test_template.py "$RUNNER_TEMP/guantune-consumer" "$RUNNER_TEMP/guantune-build/autotune@0.1.0.zip"

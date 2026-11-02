@@ -74,3 +74,18 @@ The published base's
 is successful. It does not validate the current uncommitted integration. See
 `pasted-implementation.md` for the behavior changes and local evidence. Physical
 validation remains pending.
+
+## Chassis-only refactor — 2026-11-01
+
+The current runner takes a real `lemlib::Chassis&`; it no longer accepts a generic
+hardware backend. All headers are under `include/autotune/`, including nested
+internal headers, which the PROS template now packages recursively.
+
+Local checks passed with the installed PROS 4.2.2/LemLib dependencies: library and
+optimized template builds, all four examples against the template archive,
+monolithic and hot/cold consumer links, and the real-header constructor/settings
+check (using the Apple Clang fmt workaround). Clang C++17/C++20 host suites and
+ARM packaging checks passed. The consumer check used the existing dependency
+installation and extracted template rather than a new Conductor download.
+No new remote CI run or robot runtime session was performed. Historical
+simulation results above apply to the removed generic-drive implementation.

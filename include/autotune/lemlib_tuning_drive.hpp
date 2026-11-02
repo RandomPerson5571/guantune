@@ -2,7 +2,9 @@
 
 #include "autotune/idle_pid_guard.hpp"
 #include "autotune/pid_validation.hpp"
-#include "autotune/self_tuning_auton.hpp"
+#include "autotune/position.hpp"
+#include "autotune/tuning_config.hpp"
+#include "autotune/tuning_result.hpp"
 #include <lemlib/api.hpp>
 #if __has_include("autotune/dependency_version.hpp")
 #include "autotune/dependency_version.hpp"
@@ -14,36 +16,35 @@
 #endif
 
 namespace autotune {
-// Adapts only hardware operations. Search decisions and motion measurements
-// live in the platform-independent core, so host tests exercise the real logic.
-class LemLibTuningDrive final : public TuningDrive {
+// Concrete wrapper for the caller's existing LemLib chassis. No custom drivetrain,
+// motor controller or odometry implementation is installed by Guantune.
+class LemLibTuningDrive final {
   public:
     // LemLib has no calibrated flag. The default assumes the caller calibrated;
     // provide a readiness probe when that cannot be guaranteed by the caller.
     explicit LemLibTuningDrive(
         lemlib::Chassis& chassis, std::function<bool()> ready = [] { return true; });
-    ~LemLibTuningDrive() override;
+    ~LemLibTuningDrive();
     LemLibTuningDrive(const LemLibTuningDrive&) = delete;
     LemLibTuningDrive& operator=(const LemLibTuningDrive&) = delete;
 
-    DrivePose pose() override;
-    void setTrialGains(const Gains& gains, double windupRange) override;
-    void restoreGains() override;
-    bool calibrated() override;
-    double batteryMillivolts() override;
-    std::vector<MotorTelemetry> motorTelemetry(const std::vector<std::int8_t>& ports) override;
-    bool supportsAngular() const override;
-    void selectMode(Mode mode) override;
-    void turnTo(double heading, std::uint32_t timeoutMs, double maxOutput) override;
-    void turnBack(double power) override;
-    void moveTo(const DrivePose& target, bool forwards, std::uint32_t timeoutMs,
-                double maxOutput) override;
-    bool isMoving() override;
-    void driveBackward(double power) override;
-    void stop() override;
-    std::uint32_t nowMs() override;
-    void delayMs(std::uint32_t ms) override;
-    bool available() override;
+    ChassisPosition pose();
+    void setTrialGains(const Gains& gains, double windupRange);
+    void restoreGains();
+    bool calibrated();
+    double batteryMillivolts();
+    std::vector<MotorTelemetry> motorTelemetry(const std::vector<std::int8_t>& ports);
+    void selectMode(Mode mode);
+    void turnTo(double heading, std::uint32_t timeoutMs, double maxOutput);
+    void turnBack(double power);
+    void moveTo(const ChassisPosition& target, std::uint32_t timeoutMs,
+                double maxOutput);
+    bool isMoving();
+    void driveBackward(double power);
+    void stop();
+    std::uint32_t nowMs();
+    void delayMs(std::uint32_t ms);
+    bool available();
 
   private:
     lemlib::PID& selectedPID();
@@ -59,7 +60,7 @@ class LemLibTuningDrive final : public TuningDrive {
 // LemLib headers without linking hardware code. Preserve caller exit/slew settings.
 inline std::optional<lemlib::ControllerSettings> toLemLib(const AutonTuneResult& result,
                                                           lemlib::ControllerSettings base) {
-    if (result.status != AutonTuneStatus::COMPLETE || !detail::validPidGains(result.gains) ||
+    if (!result.succeeded() || !detail::validPidGains(result.gains) ||
         !detail::validPidScalar(result.integralWindupRange) || result.integralWindupRange <= 0)
         return std::nullopt;
     base.kP = result.gains.kP;

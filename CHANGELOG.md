@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Remove JSON/CSV export, SD-card/file persistence and formatted settings output.
+  Return PID values, windup range, status, trials and optional telemetry through
+  the `AutonTuneResult` class, with `succeeded()` identifying confirmed results.
+  Callers choose how to display or transmit the data; update all examples and
+  template consumer checks to use returned objects.
+
+- Remove the unused public gain-step forwarding method, unreachable
+  `UNSUPPORTED_MODE` status, always-true forward-motion argument, obsolete audit
+  script stub and unused includes. Keep the remaining status numeric values stable.
+
+- Make SelfTuningAuton a concrete LemLib chassis wrapper: construct it from
+  `lemlib::Chassis&`, move through LemLib and read positions through `getPose()`.
+  Remove the generic drive interface and unimplemented relay/asynchronous APIs.
+- Move all internal headers into `include/autotune/detail/`; `src/` contains only
+  `.cpp` files. Package nested headers and replace generic-drive simulation tests
+  with pure policy/measurement/output tests plus real-dependency wrapper checks.
+
+- Group implementation sources by responsibility, split private declarations,
+  and separate host, compatibility and packaging tests. Preserve public include
+  paths and update build, CI, audit reproduction and packaging references.
+
+- Add angular-only `angleDegrees` and `testAngles` targets. Angular callers must
+  migrate from `distanceInches` and `testDistances`, which are now lateral-only.
+
 - Separate session orchestration, configuration validation, motion tracking,
   gain search, hardware operations, and persistence. Split public types into
   focused headers while retaining the existing session entry points.

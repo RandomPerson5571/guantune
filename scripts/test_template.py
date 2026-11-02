@@ -57,10 +57,11 @@ void autonomous() {
     config.enableTelemetry = true;
     config.telemetryMotorPorts = {1, -2};
     auto result = guantune::tuneLateral(*validationChassis, config);
-    (void)guantune::saveAcceptedGains(result, "/usd/guantune.json");
-    auto snippet = guantune::controllerSettingsSnippet(result);
-    (void)snippet;
-    (void)guantune::saveTelemetryCsv(result, "/usd/guantune-telemetry.csv");
+    if (result.succeeded()) {
+        auto gains = result.gains;
+        (void)gains;
+    }
+    (void)result.telemetry;
 }
 ''')
     # Compile every public example against the installed headers, including

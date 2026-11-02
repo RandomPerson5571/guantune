@@ -1,3 +1,7 @@
+> Historical measurements: the JSON/CSV exporters and settings formatter
+> described below have been removed. Current Guantune returns in-memory result
+> objects only. These old size measurements do not describe the current wrapper.
+
 # Template and robot binary size
 
 Measured locally on 2026-10-28 with PROS CLI 3.5.6, kernel 4.2.2,

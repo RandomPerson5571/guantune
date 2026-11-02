@@ -1,4 +1,8 @@
-# Supplied implementation integration
+# Historical supplied implementation integration
+
+This document records the previous generic-drive implementation and its validation.
+The current chassis-only architecture and coverage are described in
+[architecture.md](architecture.md) and [the test guide](../test/README.md).
 
 The replacement supplied on 2026-10-29 is the behavioral baseline for the tuner.
 Its logic is integrated into the existing modules rather than copied into one
@@ -25,8 +29,6 @@ large source file. The original public session names remain available.
   trial completed. Those gains are diagnostics, not accepted results.
 - **Validation:** targets need overshoot headroom, angular targets must be below
   180 degrees, telemetry has a 100000-sample cap, and ports must be valid/unique.
-- **Battery:** resting checks are strict; under-load readings tolerate dips
-  shorter than 100 ms unless below 85% of the configured threshold.
 - **Telemetry:** initial reservation is at most 4096 samples. Motor I/O runs
   every fifth recorded sample, while chassis/command recording follows its
   configured cadence. Recording stops at capacity while tuning continues.
@@ -34,7 +36,7 @@ large source file. The original public session names remain available.
 ## Structure and retained corrections
 
 `self_tuning_auton.cpp` coordinates the session. `session_control.cpp` handles
-readiness and waits; `battery_monitor.cpp` owns voltage decisions;
+readiness and waits;
 `gain_search.cpp` owns search history; `tuning_motion.cpp` and `tuning_return.cpp`
 own the two movement phases. `telemetry.cpp` owns recording, while JSON and CSV
 serialization run in separate output sources after movement. See
@@ -56,14 +58,14 @@ Several integration corrections preserve the existing audited behavior:
 - Cleanup destructors make a best-effort stop and restore without masking an
   original exception. Hardware cleanup still has a nonthrowing contract.
 
-The supplied battery and telemetry behavior requires those fields and operations
+The telemetry behavior requires those fields and operations
 in `TuningDrive`, configuration, results and the real LemLib adapter; they are
 included in this integration. `saveTelemetryCsv` is available again. The angular
 example uses 90/170-degree targets under the new validation rule.
 
 ## Tests
 
-The host suite includes lifecycle/concurrency, strict and sagging battery reads,
+The host suite includes lifecycle/concurrency, passive battery telemetry,
 frozen clocks in both motion phases, bounded/cancellable idle waits, cleanup
 exceptions, policy history, damping-cap backoff, retry limits, relative ranking,
 recording limits, motor cadence, clock wrap, command visibility and CSV export.

@@ -1,9 +1,5 @@
 #pragma once
 
-#include "autotune/lemlib_adapter.hpp"
-#include "autotune/lemlib_tuning_drive.hpp"
-#include "autotune/relay_tuner.hpp"
+// Guantune tunes the caller's existing LemLib chassis and reads chassis.getPose().
 #include "autotune/self_tuning_auton.hpp"
-#include "autotune/types.hpp"
-
-#include "autotune/output.hpp"
+#include "autotune/lemlib_tuning_drive.hpp"

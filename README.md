@@ -1,90 +1,90 @@
 # Guantune
 
-A PROS/LemLib PID tuner that runs measured trials, adjusts gains, and returns to
-the saved starting pose between attempts. It supports lateral moves and angular
-turns, multiple target distances, battery protection, and independent measurement
-checks. Optional bounded telemetry records motion and motor readings for CSV
-export without performing file writes in the control loop.
+Guantune is an automatic PID-tuning wrapper for an existing **LemLib chassis**.
+It installs candidate gains into LemLib's lateral or angular PID, requests
+LemLib motions, reads `chassis.getPose()` to measure the result, and returns
+to the saved starting position between trials. Your project owns the chassis,
+motors, sensors, calibration, odometry, brake mode and motion settings.
 
-**Status:** sanitizer host tests, seeded physics tests, and a local ARM library/
-template build, template installation, and monolithic/hot-cold consumer links
-pass locally with PROS 4.2.2 / ARM GCC 14.3.1 / LemLib 0.5.6 for the
-current replacement integration.
-The current integration has local validation; remote CI for these uncommitted
-changes and physical robot sessions remain pending.
-The simulation is a limited motor model, not evidence of hardware convergence.
+Guantune does not implement a drivetrain, odometry system or motor PID loop.
+LemLib 0.5.6 calls its position getter `getPose()`; there is no chassis
+`getPosition()` method in that version. The tuner uses `moveToPoint()` for
+lateral trials, `turnToHeading()` for angular trials and low-power `tank()`
+commands for returns. All drivetrain commands go through the supplied chassis.
 
-## Install
+## Use
 
-Use PROS kernel 4.2.2 with LemLib 0.5.6. Copy include/autotune/ and src/autotune/
-into an existing PROS project, preserving paths. Keep your chassis/odometry setup.
-See [compatibility and template builds](docs/compatibility.md) for reproducible
-setup and the pinned/legacy/latest CI matrix. The core needs C++17 or newer;
-PROS 4.2.2's build uses C++26 by default. The
-[size investigation](docs/package-size.md) explains template and robot binary sizes.
+Use PROS 4.2.2 and LemLib 0.5.6. Copy the complete `include/autotune/` and
+`src/autotune/` trees into your robot project, or build/install the PROS template.
+All headers, including internal declarations, are under `include/`; `src/`
+contains only implementation `.cpp` files.
 
-## Quick start
-
-After successful calibration, with exclusive drivetrain access and a clear path:
+After calibration, with exclusive chassis access and a clear trial/return path:
 
 ```cpp
-#include "autotune/lemlib_tuning_drive.hpp"
-#include "autotune/output.hpp"
+#include "autotune/api.hpp"
 
-// At the start of autonomous() or opcontrol(), before joystick writes:
-auto result = guantune::tuneLateral(chassis);
-std::printf("Guantune: %s\n", guantune::statusName(result.status));
-if (result.status == guantune::AutonTuneStatus::COMPLETE) {
-    bool saved = guantune::saveAcceptedGains(result, "/usd/guantune.json");
-    // Check saved; print controllerSettingsSnippet(result) if SD is unavailable.
-    (void)saved;
+guantune::AutonTuneConfig config;
+config.distanceInches = 24;
+auto result = guantune::tuneLateral(chassis, config);
+if (result.succeeded()) {
+    const auto& pid = result.gains; // pid.kP, pid.kI, pid.kD
+    // Display pid or send it through your own telemetry connection.
 }
 ```
 
-For driver control, use the [opcontrol example](examples/opcontrol.cpp): tuning
-starts automatically on entry, with no controller button presses, and runs
-synchronously before joystick writes begin. It returns on completion, the
-configured trial limit (20 by default), or a fault; it does not restart itself.
-Other tasks must also yield drivetrain ownership. Enabled driver control is supported;
-the robot does not need to be in autonomous mode. Print the returned status even
-when tuning fails, so an early exit is visible.
+For angular tuning, configure degrees and allow enough travel/speed for a turn:
 
-For explicit readiness, clearance confirmation, multiple targets or custom search,
-configure AutonTuneConfig and use SelfTuningAuton with LemLibTuningDrive. Read the
-[configuration and algorithm reference](docs/tuning.md) before robot testing.
-Accepted gains are returned, and the original PID is restored on exit.
-
-```mermaid
-flowchart LR
-    A[Readiness and clearance] --> B[Install candidate PID]
-    B --> C[Move and measure]
-    C --> D[Stop, observe coast, restore PID]
-    D --> E[Low power return and settle]
-    E --> F{All targets confirmed?}
-    F -->|yes| G[Return accepted gains]
-    F -->|no| B
-    C -->|fault| H[Stop and restore; no automatic return]
-    E -->|failure| H
+```cpp
+config.angleDegrees = 90;
+config.maxTravelInches = 210; // Angular travel limit, in degrees.
+config.maxSensorSpeed = 400; // Angular jump limit, degrees/second.
+auto result = guantune::tuneAngular(chassis, config);
 ```
 
-## Reading the implementation
+Multiple-target runs use `testDistances`
+for inches or `testAngles` for degrees. See [the tuning reference](docs/tuning.md)
+for travel limits and angular configuration.
 
-Start with the [code map](docs/architecture.md) for the module boundaries,
-session sequence, units, and cleanup rules. See the
-[replacement integration notes](docs/pasted-implementation.md) for the new gain
-schedule, abort behavior, return handling, and telemetry limits. Existing callers
-can include `autotune/self_tuning_auton.hpp` or `autotune/api.hpp`. When copying the
-library, copy all of `include/autotune/` and `src/autotune/`; the core now spans
-several source files.
+For progress callbacks or cancellation, construct the runner directly:
 
-## Validation and help
+```cpp
+guantune::SelfTuningAuton tuner(chassis, config, [&] {
+    return calibrationComplete && !imu.is_calibrating();
+});
+auto result = tuner.run([](unsigned trial, const guantune::Gains& gains) {
+    // Optionally report trial/gains through your own display or telemetry code.
+    (void)trial;
+    (void)gains;
+    return true;
+});
+// Another task may call tuner.abort(); keep tuner alive until run() returns.
+```
 
-- [Tuning reference and limits](docs/tuning.md)
-- [Troubleshooting and failure state](docs/troubleshooting.md)
-- [Hardware validation log and reporting protocol](docs/hardware-validation.md)
-- [Dependency compatibility evidence](docs/compatibility.md)
-- [Contributing and test commands](CONTRIBUTING.md)
+`run()` blocks. In driver control, call it once before the joystick loop, as in
+[the opcontrol example](examples/opcontrol.cpp). Other tasks must also yield
+chassis ownership. The original PID is restored when tuning exits; accepted
+gains are returned in an `AutonTuneResult` object for deliberate application to
+your chassis configuration. Read `result.gains.kP`, `.kI`, `.kD`,
+`result.integralWindupRange`, and `result.status`. Optional recorded samples are
+available in `result.telemetry`. Guantune does not write files, format output,
+print results, or select a screen or telemetry transport.
+Only `COMPLETE` means all confirmations and the final return succeeded.
 
-Run `bash scripts/test_host.sh` for host tests with ASan/UBSan. CI tests GCC and
-Clang in C++17/C++20 and builds the adapter against real PROS/LemLib headers.
+## Layout and validation
+
+- [Architecture and ownership](docs/architecture.md)
+- [Configuration, gain search and measurement limits](docs/tuning.md)
+- [Build compatibility](docs/compatibility.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Tests and their limits](test/README.md)
+- [Physical validation protocol](docs/hardware-validation.md)
+
+Run `bash scripts/test_host.sh` for policy, configuration, position-analysis,
+telemetry checks under ASan/UBSan. Motion execution is compiled
+against real PROS/LemLib dependencies and linked through the template consumer
+check. The removed generic-drive simulations do not validate the current
+chassis wrapper. Physical sessions have not been recorded, and compile/link
+checks do not establish safe motion or convergence on a robot.
+
 Guantune is MIT licensed; upstream dependencies retain their own licenses.

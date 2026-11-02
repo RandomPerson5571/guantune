@@ -1,26 +1,16 @@
-// Call tuningOpcontrol(chassis, controller) from your project's opcontrol().
-// Keep your existing calibrated chassis and controller objects. This function
-// owns driver control; do not run another task that writes drivetrain commands.
+// Tune once before driver control. An optional caller callback can display the
+// returned result on a screen or send it over the team's telemetry connection.
 #include "autotune/api.hpp"
-#include <cstdio>
+#include <functional>
 
-void tuningOpcontrol(lemlib::Chassis& chassis, pros::Controller& controller) {
+void tuningOpcontrol(
+    lemlib::Chassis& chassis, pros::Controller& controller,
+    const std::function<void(const guantune::AutonTuneResult&)>& onResult = {}) {
     chassis.tank(0, 0, true);
-    std::printf("Guantune starting automatically (driver control paused)\n");
-    std::fflush(stdout);
-    // Blocking call: no buttons or joystick writes during the tuning session.
-    // Uses the default 20-trial limit, including confirmation trials.
     auto result = guantune::tuneLateral(chassis);
-    std::printf("Guantune: %s, trials=%u\n",
-                guantune::statusName(result.status),
-                static_cast<unsigned>(result.trials.size()));
-    if (result.status == guantune::AutonTuneStatus::COMPLETE) {
-        std::printf("%s", guantune::controllerSettingsSnippet(result).c_str());
-    }
-    std::fflush(stdout);
+    if (onResult) onResult(result);
 
-    // Resume normal driver control after the single session exits. Do not retry
-    // automatically: failed runs and trial limits need their status inspected.
+    // Resume driver control after the one session and caller callback finish.
     while (!pros::competition::is_disabled()) {
         chassis.arcade(controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y),
                        controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X));

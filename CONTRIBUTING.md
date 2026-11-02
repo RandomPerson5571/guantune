@@ -1,19 +1,28 @@
 # Contributing
 
-Use C++17 in library code. Keep PROS/LemLib dependencies in the adapter; host tests
-implement TuningDrive, never replacement upstream namespaces. Use conventional
-commits and the included .clang-format. Preserve existing source line endings.
+Guantune is a wrapper for the caller's existing LemLib chassis. Keep drivetrain
+commands in `src/autotune/adapters/` and use the chassis's public API. Read
+position through `chassis.getPose()`. Do not add a generic drive backend, custom
+odometry, direct motor control or a replacement PID loop.
 
-Run `bash scripts/test_host.sh` with Clang and GCC and CXXSTD=c++17/c++20.
-CI runs all four combinations under ASan and UBSan. Add regression cases for
-changed decisions, stop behavior and restoration. Simulated success is not
-hardware validation. Report seeds and model parameters for simulation failures.
+Use C++17 in library code, conventional commits and the included `.clang-format`.
+Preserve existing source line endings. Put every header under `include/autotune/`
+and internal declarations under `include/autotune/detail/`. Keep `src/` limited
+to `.cpp` implementations. Session/search logic belongs in `core/`, motion
+measurement/execution in `motion/` and in-memory recording in `telemetry/`.
+Return data through `AutonTuneResult`; presentation and transport belong to the
+caller. Do not add file/SD-card writers or automatic console output. See `docs/architecture.md` for ownership and cleanup rules.
 
-For adapter changes, run the pinned PROS build in docs/compatibility.md and check
-the latest-stable CI job. Never install candidate gains while motion owns a PID.
-Cleanup callbacks must not throw. Callbacks must not start unrelated motions.
+Run `bash scripts/test_host.sh` with Clang/GCC and C++17/C++20. ASan/UBSan and
+warnings-as-errors are enabled. Host tests belong in `test/host/`; test pure
+calculations and in-memory recording without recreating upstream PROS/LemLib classes.
+Packaging tests live in `test/packaging/`, real-header checks in `test/compatibility/`.
 
-Hardware results belong in docs/hardware-validation.md with the full environment,
-all failed attempts, recorded trial voltages and battery conditions. Remove identifying
-information from attachments. Use the tuning-result issue template. Do not label a version
-validated until its linked CI evidence and physical test evidence exist.
+For runner, adapter or public-header changes, build the real PROS library and
+template, then compile all examples and link a consumer against the template.
+Never replace upstream namespaces with mocks to claim compatibility. Never install
+candidate gains while motion owns the PID. Stop/restore must not throw.
+
+Physical results belong in `docs/hardware-validation.md` with configuration,
+failures, independently measured error, battery conditions and robot details.
+Host tests and compile/link checks cannot establish motion safety or convergence.

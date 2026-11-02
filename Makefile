@@ -15,7 +15,7 @@ EXTRA_CXXFLAGS += -I$(INCDIR)
 IS_LIBRARY:=1
 LIBNAME:=autotune
 VERSION:=0.1.0
-TEMPLATE_FILES=$(wildcard $(INCDIR)/autotune/*.hpp) README.md LICENSE CHANGELOG.md CONTRIBUTING.md $(wildcard docs/*.md)
+TEMPLATE_FILES=$(shell find $(INCDIR)/autotune -type f -name '*.hpp') README.md LICENSE CHANGELOG.md CONTRIBUTING.md $(wildcard docs/*.md)
 
 .DEFAULT_GOAL:=library
 
