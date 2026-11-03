@@ -1,5 +1,8 @@
 # Guantune
 
+New here? Read the [Getting started guide](docs/getting-started.md) for setup and a first run.
+See the [code structure and flow diagrams](docs/code-map.md) for a visual overview.
+
 Guantune is an automatic PID-tuning wrapper for an existing **LemLib chassis**.
 It installs candidate gains into LemLib's lateral or angular PID, requests
 LemLib motions, reads `chassis.getPose()` to measure the result, and returns

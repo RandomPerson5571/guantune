@@ -20,8 +20,14 @@ class SelfTuningAuton {
     // here. Trial motion and the return to the saved origin are automatic.
     using BeforeTrial = std::function<bool(unsigned, const Gains&)>;
 
+    // chassis is borrowed and must outlive this object. config is copied so
+    // caller edits cannot change a running session. ready is a prompt readiness
+    // probe; it should report calibration completion without starting motion.
     explicit SelfTuningAuton(lemlib::Chassis& chassis, AutonTuneConfig config = {},
                              std::function<bool()> ready = [] { return true; });
+    // Runs trials, returns, and confirmations synchronously. Restores the
+    // original PID on exit; successful gains are returned for deliberate use.
+    // The per-object run guard cannot coordinate other tuners or driver tasks.
     AutonTuneResult run(const BeforeTrial& beforeTrial = {});
     // Latched: cancels the active run, or exactly the next run when called idle.
     // The owning run consumes the request on exit; rejected concurrent calls do not.

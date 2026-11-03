@@ -26,6 +26,9 @@ lemlib::PID& LemLibTuningDrive::selectedPID() {
     return mode_ == Mode::ANGULAR ? chassis_.angularPID : chassis_.lateralPID;
 }
 
+// Save the original selected PID once per guard lifetime, including controller
+// state. LemLib's const gain members require guarded reconstruction rather than
+// assignment; no motion may still be using that PID when it is replaced.
 void LemLibTuningDrive::setTrialGains(const Gains& gains, double windupRange) {
     stop(); // Finish owned motion before copying or reconstructing PID state.
     if (!pidGuard_)
@@ -106,6 +109,9 @@ void LemLibTuningDrive::driveBackward(double power) {
     chassis_.tank(-power, -power, true); // Bypass driver curves for fixed power.
 }
 
+// Ownership flags prevent early failures from cancelling unrelated chassis
+// work. Joining an owned asynchronous LemLib motion is also the barrier that
+// makes later PID restoration valid. Manual returns need an explicit tank zero.
 void LemLibTuningDrive::stop() {
     if (ownsMotion_) {
         chassis_.cancelAllMotions();

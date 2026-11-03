@@ -7,6 +7,9 @@
 
 namespace autotune {
 namespace {
+// Ready may start a fixed-power return; Reversing approaches the origin;
+// Coasting observes zero-output settling. A short stop may transition back to
+// Ready, but all attempts share one deadline instead of restarting the timeout.
 enum class ReturnPhase { Ready, Reversing, Coasting };
 constexpr double stopLeadSeconds = 2.0 * detail::controlPeriodMs / 1000.0;
 } // namespace
@@ -53,6 +56,9 @@ AutonTuneStatus SelfTuningAuton::returnToStart(detail::MotionTracker& motion,
         if (status != AutonTuneStatus::COMPLETE)
             return status;
 
+        // Lateral return checks full translation, not only forward projection:
+        // a sideways offset must not pass just because projected distance is zero.
+        // Angular position and heading stay unwrapped across the session.
         const bool nearOrigin =
             distance <= config_.returnToleranceInches &&
             (!angular || std::abs(sample.headingFromOrigin) <= config_.returnToleranceInches);
@@ -78,6 +84,8 @@ AutonTuneStatus SelfTuningAuton::returnToStart(detail::MotionTracker& motion,
                 settledForMs = 0;
             }
         }
+        // Being momentarily inside tolerance is insufficient. Require a
+        // continuous low-speed interval; any excursion resets the settle timer.
         if (phase == ReturnPhase::Coasting && sample.deltaMs && nearOrigin &&
             sample.speed <= config_.maxSettledSpeed)
             settledForMs += sample.deltaMs;

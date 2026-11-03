@@ -17,6 +17,8 @@ bool validTrialReport(const TrialReport& report, const AutonTuneConfig& config) 
            (!report.independentDistance || std::isfinite(*report.independentDistance));
 }
 
+// Usable measurements are not necessarily acceptable control. Require settling,
+// small final error and overshoot, and few deadband crossings before confirmation.
 bool trialPassed(const TrialReport& report, const AutonTuneConfig& config) {
     return validTrialReport(report, config) && report.settled && !report.timedOut &&
            std::abs(report.finalErrorInches) <= config.toleranceInches &&
@@ -67,6 +69,8 @@ GainSearch::Adjustment GainSearch::classifyChange(const Gains& before, const Gai
     return Adjustment::None;
 }
 
+// Integral is an opt-in last step for repeated, settled undershoot after P/D
+// work. Restrict it to the windup region and avoid adding I to oscillating trials.
 bool GainSearch::canAddIntegral(const TrialReport& report) const {
     return config_.allowIntegral && pdAdjustments_ >= config_.integralAfterPdAdjustments &&
            consecutiveUndershoots_ >= config_.integralUndershootTrials &&
@@ -98,6 +102,9 @@ SearchDecision GainSearch::nextCandidate(const TrialReport& report, unsigned tri
     unsettledRetries_ = 0;
     if (reversesDirection)
         fineSteps_ = true;
+    // Overshoot first reduces existing integral, then adds damping, then reduces
+    // proportional gain if damping is capped. Undershoot normally increases P;
+    // I is considered only after the stricter history-based gate above passes.
     if (overshoots) {
         consecutiveUndershoots_ = 0;
         if (candidate.kI > 0) {

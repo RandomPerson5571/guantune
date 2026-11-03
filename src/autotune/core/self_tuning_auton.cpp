@@ -63,6 +63,9 @@ AutonTuneResult SelfTuningAuton::run(const BeforeTrial& beforeTrial) {
                              : configuredTargets;
     std::size_t targetIndex = 0;
     std::size_t successfulTrials = 0;
+    // A confirmation is a full cycle through every target with unchanged gains.
+    // Any failed acceptance test resets progress to target zero; successful
+    // measurements still require a completed return before counting here.
     const auto requiredSuccesses = config_.confirmationTrials * targets.size();
     double bestScore = std::numeric_limits<double>::infinity();
     Gains candidate = config_.startingGains;
@@ -70,6 +73,8 @@ AutonTuneResult SelfTuningAuton::run(const BeforeTrial& beforeTrial) {
     detail::TelemetryRecorder telemetry(config_, result, drive_.nowMs(), [this] {
         return drive_.motorTelemetry(config_.telemetryMotorPorts);
     });
+    // Construct once at the first idle trial. Keeping one origin/tracker across
+    // returns prevents residual offsets or heading changes from being erased.
     std::optional<detail::MotionTracker> motion;
 
     // Every exit after a trial uses the same recommendation rule. Only safely
@@ -124,6 +129,8 @@ AutonTuneResult SelfTuningAuton::run(const BeforeTrial& beforeTrial) {
             return result;
         }
         result.trials.back().returnedToStart = true;
+        // Ranking chooses diagnostic gains on failure. It is separate from
+        // acceptance: a low score alone cannot replace all-target confirmation.
         const double score = detail::trialScore(report, config_);
         if (score < bestScore) {
             bestScore = score;
@@ -145,6 +152,8 @@ AutonTuneResult SelfTuningAuton::run(const BeforeTrial& beforeTrial) {
         // with a candidate for which there is no remaining test budget.
         if (index == config_.maxTrials - 1)
             break;
+        // Search happens only between fully measured and safely returned trials.
+        // It selects coefficients, while LemLib remains the live motion controller.
         const auto decision = search.nextCandidate(report, index);
         if (decision.action == detail::SearchAction::InvalidReport) {
             finish(AutonTuneStatus::SENSOR_FAULT);
